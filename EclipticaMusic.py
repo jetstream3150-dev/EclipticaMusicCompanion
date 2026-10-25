@@ -60,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
   self.send_error(404)
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.3 β');root.geometry('980x760');root.minsize(800,620);self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.3.2 β');root.geometry('980x760');root.minsize(800,620);self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def build(self):
   style=ttk.Style(self.root)
   try:style.theme_use('clam')
@@ -113,7 +113,7 @@ class App:
     ttk.Button(r,text='📁',width=3,command=lambda x=v:self.pick(x)).pack(side='left',padx=2)
     ttk.Button(r,text='▶',width=3,command=lambda x=v,k=key:self.play(x.get(),self.get_fallback(k))).pack(side='left');fb=tk.StringVar(value=self.cfg.get('fallback',{}).get(key,''));self.vars[('fallback',key)]=fb;ttk.Label(inner,text='予備MP3 ('+difficulty+' / '+phase+')').pack(anchor='w');fr=ttk.Frame(inner);fr.pack(fill='x');ttk.Entry(fr,textvariable=fb).pack(side='left',fill='x',expand=True);ttk.Button(fr,text='📁',command=lambda x=fb:self.pick(x)).pack(side='left')
   bosses=ttk.Frame(nb,padding=10);nb.add(bosses,text='ボス別BGM')
-  ttk.Label(bosses,text='ボス名は自由に追加できます。ログ内のボス名と一致した場合に優先します。',foreground='#496a9b').pack(anchor='w',pady=(0,8))
+  ttk.Label(bosses,text='ログで確認した23種類から選択できます。候補にないボス名も直接入力可能です。',foreground='#496a9b').pack(anchor='w',pady=(0,8))
   self.boss_rows=ttk.Frame(bosses);self.boss_rows.pack(fill='both',expand=True)
   for name,track in self.cfg.get('boss',{}).items():self.add_boss_row(name,track)
   if not self.cfg.get('boss'):self.add_boss_row('','')
@@ -122,6 +122,7 @@ class App:
   ttk.Label(f,textvariable=self.event_status,relief='sunken',padding=6).pack(fill='x',pady=(7,0))
   ttk.Label(f,textvariable=self.player_status,relief='sunken',padding=6).pack(fill='x',pady=(4,0))
   ttk.Label(f,textvariable=self.status,relief='sunken',padding=8).pack(fill='x',pady=(4,0))
+ BOSS_CHOICES=('Kakarot', 'Nan', 'BuffNoob', 'Pride', 'Steven', 'Amaziah', 'JackedPumpkin', 'QueenVolt', 'M41D', 'Corus', 'CorusPhase2', 'Yuki', 'YukiPhase2', 'Pandora', 'Mephiel', 'MephielPhase2', 'OnyxPilot', 'NeoPilot', 'Gilgamesh', 'GilgameshPhase2', 'GilgameshPhase3', 'GoldenGrouch', 'DarkMouth')
  DIFFICULTIES=('Primal','Penumbra','Antumbra','Umbra','Eclipse','Eye of the Eclipse')
  PHASES=('戦闘','準備','ボス','終了','休憩')
  def load_config(self):
@@ -159,7 +160,7 @@ class App:
   r=ttk.Frame(self.boss_rows);r.pack(fill='x',pady=3)
   n=tk.StringVar(value=name);v=tk.StringVar(value=track)
   self.vars[('bossrow',str(id(r)))]=(n,v)
-  ttk.Entry(r,textvariable=n,width=22).pack(side='left',padx=4)
+  ttk.Combobox(r,textvariable=n,values=self.BOSS_CHOICES,width=22,state='normal').pack(side='left',padx=4)
   ttk.Entry(r,textvariable=v).pack(side='left',fill='x',expand=True,padx=4)
   ttk.Button(r,text='📁',command=lambda:self.pick(v)).pack(side='left')
   ttk.Button(r,text='▶',command=lambda:self.play(v.get())).pack(side='left',padx=3)
