@@ -11,10 +11,20 @@ CFG=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'EclipticaMusicCompani
 CFG.parent.mkdir(parents=True,exist_ok=True)
 LOG=Path(os.environ.get('USERPROFILE',str(Path.home())))/'AppData/LocalLow/VRChat/VRChat'
 DEFAULT={'round':{},'waiting':{},'phase':{},'boss':{},'music':{},'fade':2.0,'volume':80,'log':'','auto':False}
-state={'seq':0,'track':'','fade':2,'volume':.8,'stop':False}
+state={'seq':0,'track':'','fade':2,'volume':.8,'stop':False,'player_status':'プレイヤー未接続','player_seen':0}
 lock=threading.Lock()
 allowed_media=set()
 class Handler(BaseHTTPRequestHandler):
+ def do_POST(self):
+  if self.path!='/player-status' or self.client_address[0]!='127.0.0.1':
+   self.send_error(403);return
+  try:
+   size=int(self.headers.get('Content-Length','0'))
+   if size<1 or size>4096:raise ValueError('invalid size')
+   data=json.loads(self.rfile.read(size).decode('utf-8'))
+   with lock:state['player_status']=str(data.get('status',''))[:240];state['player_seen']=time.time()
+   self.send_response(204);self.end_headers()
+  except (ValueError,UnicodeError,json.JSONDecodeError):self.send_error(400)
  def log_message(self,*args):pass
  def do_GET(self):
   u=urlparse(self.path)
@@ -50,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
   self.send_error(404)
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.1 自動連動テスト版');root.geometry('980x760');root.minsize(800,620);self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.2 プレイヤー修正版');root.geometry('980x760');root.minsize(800,620);self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def build(self):
   style=ttk.Style(self.root)
   try:style.theme_use('clam')
@@ -58,7 +68,7 @@ class App:
   style.configure('Title.TLabel',font=('',18,'bold'))
   style.configure('Action.TButton',padding=(10,7))
   f=ttk.Frame(self.root,padding=14);f.pack(fill='both',expand=True)
-  ttk.Label(f,text='ECLIPTICA  MUSIC COMPANION  v1.0',style='Title.TLabel').pack(anchor='w')
+  ttk.Label(f,text='ECLIPTICA  MUSIC COMPANION  v1.2',style='Title.TLabel').pack(anchor='w')
   ttk.Label(f,text='個人用BGMプレイヤー ｜ 設定はPCごとに保存 ｜ VRChat本体は変更しません',foreground='#496a9b').pack(anchor='w',pady=(3,10))
   control=ttk.LabelFrame(f,text='1. 操作パネル',padding=9);control.pack(fill='x')
   r=ttk.Frame(control);r.pack(fill='x',pady=3)
@@ -110,6 +120,7 @@ class App:
   ttk.Button(bosses,text='＋ ボスを追加',command=lambda:self.add_boss_row('','')).pack(anchor='w',pady=8)
   ttk.Label(f,text='自動監視: 戦闘・ボス・休憩に試験対応。難易度は手動選択。準備・終了は未対応。',foreground='#98621b').pack(anchor='w')
   ttk.Label(f,textvariable=self.event_status,relief='sunken',padding=6).pack(fill='x',pady=(7,0))
+  ttk.Label(f,textvariable=self.player_status,relief='sunken',padding=6).pack(fill='x',pady=(4,0))
   ttk.Label(f,textvariable=self.status,relief='sunken',padding=8).pack(fill='x',pady=(4,0))
  DIFFICULTIES=('Primal','Penumbra','Antumbra','Umbra','Eclipse','Eye of the Eclipse')
  PHASES=('戦闘','準備','ボス','終了','休憩')
@@ -184,10 +195,21 @@ class App:
   files=sorted(LOG.glob('output_log_*.txt'),key=lambda p:p.stat().st_mtime,reverse=True)
   if files:self.log.set(str(files[0]));self.status.set('最新ログを選択しました')
   else:messagebox.showwarning('ログ未検出','VRChatを起動してから再度お試しください。')
+ def refresh_player_status(self):
+  with lock:
+   msg=state.get('player_status','');seen=state.get('player_seen',0)
+  if seen and time.time()-seen<5:self.player_status.set('プレイヤー: '+msg)
+  elif self.player_launched:self.player_status.set('プレイヤー: 接続待ち／ウィンドウを確認してください')
+  else:self.player_status.set('プレイヤー: 未起動')
+  self.root.after(1200,self.refresh_player_status)
  def open_player(self):
-  # Launch Edge in app mode, avoiding pywebview/pythonnet runtime errors.
-  if getattr(self,'player_process',None) is not None and self.player_process.poll() is None:
-   return
+  # Only a deliberate click may relaunch a player. Never launch on watch start.
+  # A dedicated Edge profile prevents reuse of the user's normal Edge windows.
+  if self.player_launched:
+   if self.player_process is None or self.player_process.poll() is None:
+    self.status.set('プレイヤーは起動済みです。タスクバーのEdgeを確認してください')
+    return
+   self.player_launched=False
   url=f'http://127.0.0.1:{self.port}/'
   candidates=[
    Path(os.environ.get('PROGRAMFILES(X86)','C:/Program Files (x86)'))/'Microsoft/Edge/Application/msedge.exe',
@@ -196,11 +218,13 @@ class App:
   ]
   edge=next((str(x) for x in candidates if x.is_file()),None)
   if not edge:
-   messagebox.showerror('プレイヤー起動失敗','Microsoft Edgeが見つかりません。Edgeがインストールされているか確認してください。')
-   return
+   messagebox.showerror('プレイヤー起動失敗','Microsoft Edgeが見つかりません。');return
   try:
-   self.player_process=subprocess.Popen([edge,'--app='+url,'--window-size=570,400'],close_fds=True)
-   self.status.set('音楽プレイヤーを起動しました')
+   profile=CFG.parent/'edge_player_profile'
+   profile.mkdir(parents=True,exist_ok=True)
+   self.player_process=subprocess.Popen([edge,'--user-data-dir='+str(profile),'--no-first-run','--app='+url,'--window-size=570,400'],close_fds=True)
+   self.player_launched=True
+   self.status.set('専用BGMプレイヤーを起動しました（監視開始で増えません）')
   except Exception as e:
    messagebox.showerror('プレイヤー起動失敗',str(e))
  def play(self,track):
@@ -227,7 +251,7 @@ class App:
   self.stop.set()
   self.stop=threading.Event();self.round=0;self.boss='';self.laststage=''
   self.worker=threading.Thread(target=self.watch,args=(p,self.stop),daemon=True)
-  self.worker.start();self.open_player();self.status.set('監視中: '+p.name)
+  self.worker.start();self.status.set('監視中: '+p.name)
   self.event_status.set('検知イベント: 待機中（次のゲームイベントから再生）')
  def stop_watch(self):
   self.stop.set();self.status.set('監視停止')
@@ -286,6 +310,11 @@ class App:
   else:self.play_auto('ボス')
  def close(self):
   self.stop.set();self.stop_music()
+  if self.player_process is not None and self.player_process.poll() is None:
+   try:
+    # Dedicated Edge profile only; do not terminate unrelated Edge sessions.
+    subprocess.run(['taskkill','/PID',str(self.player_process.pid),'/T','/F'],capture_output=True,timeout=3,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+   except Exception:pass
   self.root.destroy()
 if __name__=='__main__':
  server=ThreadingHTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=server.serve_forever,daemon=True).start()

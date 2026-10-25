@@ -1,11 +1,37 @@
 <!doctype html><html lang="ja"><meta charset="utf-8"><title>Ecliptica BGM Player</title><style>body{background:#151922;color:#eef;font:16px sans-serif;padding:28px}button{padding:12px;border:0;border-radius:8px;margin:8px;background:#526be2;color:white}#status{padding:15px;background:#252b3b;border-radius:8px}#players{position:absolute;left:-9999px;top:-9999px;width:320px;height:200px}</style><h2>🎵 Ecliptica BGM Player</h2><p>このウィンドウは開いたままにしてください。YouTubeの再生許可が必要な場合は「再生を有効化」を押してください。</p><button onclick="unlock()">▶ 再生を有効化</button><button onclick="stopAll()">■ 停止</button><p id="status">待機中</p><div id="players"><div id="yt0"></div><div id="yt1"></div></div><script src="https://www.youtube.com/iframe_api"></script><script>
-let yt=[null,null],aud=[new Audio(),new Audio()],active=0,prev=0,seq=0,ready=false,unlocked=false; aud.forEach(a=>{a.loop=true;a.volume=0});
-function onYouTubeIframeAPIReady(){ready=true;for(let i=0;i<2;i++)yt[i]=new YT.Player('yt'+i,{height:'200',width:'320',videoId:'',playerVars:{playsinline:1,controls:0,origin:location.origin},events:{onReady:()=>{}}});}
+let yt=[null,null],aud=[new Audio(),new Audio()],active=0,prev=0,seq=0,ready=false,unlocked=false;
+let pending=null,last=0,attempt=0;
+const statusEl=document.getElementById('status');
+function status(msg){statusEl.textContent=msg;fetch('/player-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:msg})}).catch(()=>{});}
+aud.forEach(a=>{a.loop=true;a.volume=0});
+function onYouTubeIframeAPIReady(){
+ ready=true;
+ for(let i=0;i<2;i++)yt[i]=new YT.Player('yt'+i,{height:'200',width:'320',videoId:'',playerVars:{playsinline:1,controls:0,origin:location.origin},events:{onReady:()=>{if(pending&&unlocked)runPending()},onError:e=>status('YouTubeエラー '+e.data+'（埋め込み不可の可能性）')}});
+ status('YouTubeプレイヤー準備完了・再生許可待ち');
+}
 function volume(i,v){aud[i].volume=Math.max(0,Math.min(1,v));if(yt[i]&&yt[i].setVolume)try{yt[i].setVolume(Math.round(v*100))}catch(e){}}
 function stop(i){aud[i].pause();aud[i].removeAttribute('src');aud[i].load();if(yt[i]&&yt[i].stopVideo)try{yt[i].stopVideo()}catch(e){}}
-function stopAll(){seq++;stop(0);stop(1);document.getElementById('status').textContent='停止中'}
-function vid(url){try{let u=new URL(url);if(u.hostname==='youtu.be')return u.pathname.slice(1);if(['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com'].includes(u.hostname)){if(u.pathname==='/watch')return u.searchParams.get('v');if(u.pathname.startsWith('/shorts/')||u.pathname.startsWith('/embed/'))return u.pathname.split('/')[2];}}catch(e){}return null}
-async function play(track,fade,vol){let i=1-active,old=active;let id=vid(track);if(id){if(!ready||!yt[i]){document.getElementById('status').textContent='YouTubeプレイヤー準備中';return}stop(i);yt[i].loadVideoById(id);volume(i,0)}else{stop(i);aud[i].src='/media?path='+encodeURIComponent(track);aud[i].loop=true;aud[i].volume=0;try{await aud[i].play()}catch(e){document.getElementById('status').textContent='再生できません: '+e.message;return}}active=i;let ticket=++seq;document.getElementById('status').textContent='再生: '+track;let start=performance.now(),duration=Math.max(0,fade)*1000;function step(now){if(ticket!==seq)return;let t=duration?Math.min(1,(now-start)/duration):1;volume(i,t*vol);volume(old,(1-t)*prev);if(t<1)requestAnimationFrame(step);else{stop(old);prev=vol}}requestAnimationFrame(step)}
-function unlock(){unlocked=true;aud.forEach(a=>{a.muted=true;a.play().catch(()=>{}).finally(()=>{a.pause();a.muted=false})});document.getElementById('status').textContent='再生許可操作済み'}
-let last=0;async function poll(){try{let r=await fetch('/state?since='+last,{cache:'no-store'});let x=await r.json();if(x.seq>last){last=x.seq;if(x.stop)stopAll();else if(x.track)play(x.track,x.fade,x.volume)}}catch(e){}setTimeout(poll,450)}poll();
+function stopAll(){pending=null;seq++;stop(0);stop(1);status('停止中')}
+function vid(url){try{let u=new URL(url);if(u.hostname==='youtu.be')return u.pathname.slice(1);if(['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com'].includes(u.hostname)){if(u.pathname==='/watch')return u.searchParams.get('v');if(u.pathname.startsWith('/shorts/')||u.pathname.startsWith('/embed/'))return u.pathname.split('/')[2]}}catch(e){}return null}
+function requestPlay(track,fade,vol){pending={track,fade,vol};runPending()}
+async function runPending(){
+ if(!pending)return;
+ if(!unlocked){status('再生待ち: 「▶ 再生を有効化」を押してください');return}
+ const task=pending,id=vid(task.track),i=1-active,old=active;
+ if(id&&(!ready||!yt[i]||typeof yt[i].loadVideoById!=='function')){status('YouTube初期化待ち（再試行します）');return}
+ pending=null;let ticket=++seq;
+ if(id){stop(i);try{yt[i].loadVideoById(id);volume(i,0)}catch(e){pending=task;status('YouTube再生準備中: '+e.message);return}}
+ else{stop(i);aud[i].src='/media?path='+encodeURIComponent(task.track);aud[i].loop=true;aud[i].volume=0;try{await aud[i].play()}catch(e){status('音楽ファイル再生失敗: '+e.message);return}}
+ if(ticket!==seq)return;
+ active=i;status('再生指示: '+task.track);
+ let start=performance.now(),duration=Math.max(0,task.fade)*1000;
+ function step(now){if(ticket!==seq)return;let t=duration?Math.min(1,(now-start)/duration):1;volume(i,t*task.vol);volume(old,(1-t)*prev);if(t<1)requestAnimationFrame(step);else{stop(old);prev=task.vol}}
+ requestAnimationFrame(step)
+}
+function unlock(){unlocked=true;aud.forEach(a=>{a.muted=true;a.play().catch(()=>{}).finally(()=>{a.pause();a.muted=false})});status('再生を有効化しました');runPending()}
+async function poll(){
+ try{let r=await fetch('/state',{cache:'no-store'});let x=await r.json();if(x.seq>last){last=x.seq;if(x.stop)stopAll();else if(x.track)requestPlay(x.track,x.fade,x.volume)}}catch(e){status('アプリとの通信に失敗: '+e.message)}
+ if(pending&&unlocked)runPending();setTimeout(poll,600)
+}
+status('アプリに接続しました');poll();
 </script></html>
