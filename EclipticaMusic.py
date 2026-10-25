@@ -50,7 +50,7 @@ class Handler(BaseHTTPRequestHandler):
   self.send_error(404)
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.0 配布準備版');root.geometry('980x760');root.minsize(800,620);self.status=tk.StringVar(value='待機中');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.1 自動連動テスト版');root.geometry('980x760');root.minsize(800,620);self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start)
  def build(self):
   style=ttk.Style(self.root)
   try:style.theme_use('clam')
@@ -85,7 +85,7 @@ class App:
   ttk.Button(r,text='保存先を開く',command=self.open_config_dir).pack(side='left',padx=5)
   nb=ttk.Notebook(f);nb.pack(fill='both',expand=True,pady=(12,7))
   guide=ttk.Frame(nb,padding=14);nb.add(guide,text='はじめに')
-  for t in ['① 「難易度別BGM」で戦闘・準備・ボス・終了・休憩の曲を登録','② 「ボス別BGM」で特定ボスの曲を上書き設定（任意）','③ 保存 → 黒いプレイヤーで「再生を有効化」 → 監視開始（自動監視は初期状態でOFF）','④ 途中参加時は、難易度とフェーズを選択して手動再生できます','※ 自動判定はステージ開始・ボス開始のみ試験対応。休憩などは手動切替してください。', '※ YouTube動画は埋め込み制限により再生できない場合があります。', '※ 音楽ファイルはこのPCの絶対パスで保存されます。別PCへの設定移行時は再指定が必要です。']:
+  for t in ['① 「難易度別BGM」で戦闘・準備・ボス・終了・休憩の曲を登録','② 「ボス別BGM」で特定ボスの曲を上書き設定（任意）','③ 保存 → 黒いプレイヤーで「再生を有効化」 → 監視開始（自動監視は初期状態でOFF）','④ 途中参加時は、難易度とフェーズを選択して手動再生できます','※ ステージ開始・ボス開始・休憩開始・ロビーをログから試験検知します。難易度は手動選択してください。', '※ YouTube動画は埋め込み制限により再生できない場合があります。', '※ 音楽ファイルはこのPCの絶対パスで保存されます。別PCへの設定移行時は再指定が必要です。']:
    ttk.Label(guide,text=t,wraplength=820).pack(anchor='w',pady=9)
   tracks=ttk.Frame(nb,padding=10);nb.add(tracks,text='難易度別BGM')
   ttk.Label(tracks,text='難易度ごとに5つのフェーズの曲を登録します。休憩はラウンド終了後の「世界の狭間」です。',foreground='#496a9b').pack(anchor='w',pady=(0,8))
@@ -108,8 +108,9 @@ class App:
   for name,track in self.cfg.get('boss',{}).items():self.add_boss_row(name,track)
   if not self.cfg.get('boss'):self.add_boss_row('','')
   ttk.Button(bosses,text='＋ ボスを追加',command=lambda:self.add_boss_row('','')).pack(anchor='w',pady=8)
-  ttk.Label(f,text='自動監視はログのステージ/ボス通知を利用します。難易度・準備・終了・休憩の自動判定は未検証です。',foreground='#98621b').pack(anchor='w')
-  ttk.Label(f,textvariable=self.status,relief='sunken',padding=8).pack(fill='x',pady=(7,0))
+  ttk.Label(f,text='自動監視: 戦闘・ボス・休憩に試験対応。難易度は手動選択。準備・終了は未対応。',foreground='#98621b').pack(anchor='w')
+  ttk.Label(f,textvariable=self.event_status,relief='sunken',padding=6).pack(fill='x',pady=(7,0))
+  ttk.Label(f,textvariable=self.status,relief='sunken',padding=8).pack(fill='x',pady=(4,0))
  DIFFICULTIES=('Primal','Penumbra','Antumbra','Umbra','Eclipse','Eye of the Eclipse')
  PHASES=('戦闘','準備','ボス','終了','休憩')
  def load_config(self):
@@ -215,46 +216,74 @@ class App:
  def auto_start(self):
   if self.cfg.get('auto',True):self.start()
  def start(self):
-  self.save();p=Path(self.log.get())
-  if not p.is_file():self.detect();p=Path(self.log.get())
-  if not p.is_file():self.status.set('VRChatのログが見つかりません。VRChat起動後に監視開始してください');return
+  self.save()
+  # Prefer the current VRChat session's newest log over a persisted stale path.
+  files=sorted(LOG.glob('output_log_*.txt'),key=lambda x:x.stat().st_mtime,reverse=True)
+  configured=Path(self.log.get()) if self.log.get().strip() else None
+  p=files[0] if files else configured
+  if p is None or not p.is_file():
+   self.status.set('VRChatログが見つかりません。VRChatを起動してください');return
+  self.log.set(str(p))
   self.stop.set()
-  self.stop=threading.Event();self.round=0;self.boss='';self.laststage='';self.worker=threading.Thread(target=self.watch,args=(p,self.stop),daemon=True);self.worker.start();self.open_player();self.status.set('監視中: '+p.name)
- def stop_watch(self):self.stop.set();self.status.set('監視停止')
+  self.stop=threading.Event();self.round=0;self.boss='';self.laststage=''
+  self.worker=threading.Thread(target=self.watch,args=(p,self.stop),daemon=True)
+  self.worker.start();self.open_player();self.status.set('監視中: '+p.name)
+  self.event_status.set('検知イベント: 待機中（次のゲームイベントから再生）')
+ def stop_watch(self):
+  self.stop.set();self.status.set('監視停止')
  def watch(self,p,signal):
+  # Start at EOF: old events must not play when the app starts mid-game.
+  # Reopen new VRChat logs automatically when VRChat restarts.
   try:
-   with p.open('r',encoding='utf-8',errors='replace') as f:
-    f.seek(0,2)
-    while not signal.is_set():
-     line=f.readline()
-     if not line:
-      time.sleep(.25)
-      try:
-       newest=max(LOG.glob('output_log_*.txt'),key=lambda x:x.stat().st_mtime,default=None)
-       if newest and newest!=p and newest.stat().st_mtime>p.stat().st_mtime:
-        self.root.after(0,lambda:self.status.set('新しいVRChatログを検出しました。監視開始を押して切り替えてください。'))
-      except OSError:pass
-      continue
-     stage=re.search(r'ECLIPTICA - now in stage: (.+?) on phase:',line)
-     boss=re.search(r'ECLIPTICA - now fighting boss: (.+?)\(Clone\) on phase:',line)
+   f=p.open('r',encoding='utf-8',errors='replace')
+   f.seek(0,2)
+   while not signal.is_set():
+    line=f.readline()
+    if not line:
+     time.sleep(.25)
+     try:
+      newest=max(LOG.glob('output_log_*.txt'),key=lambda x:x.stat().st_mtime,default=None)
+      if newest and newest!=p and newest.stat().st_mtime>p.stat().st_mtime:
+       nf=newest.open('r',encoding='utf-8',errors='replace')
+       nf.seek(0,2)
+       f.close();f=nf;p=newest
+       self.root.after(0,lambda path=str(p):self.log.set(path))
+       self.root.after(0,lambda name=p.name:self.status.set('新しいログへ自動切替: '+name))
+     except OSError:pass
+     continue
+    if 'ECLIPTICA - now in intermission' in line:
+     self.root.after(0,lambda:self.handle_event('休憩開始','休憩'))
+    elif 'ECLIPTICA - now in lobby' in line:
+     self.root.after(0,lambda:self.handle_event('ロビーに戻りました',None))
+    else:
+     stage=re.search(r'ECLIPTICA - now in stage:\s*(.+?)\s+on phase:',line)
+     boss=re.search(r'ECLIPTICA - now fighting boss:\s*(.+?)\s+on phase:',line)
      if stage:
-      name=stage.group(1)
-      if name!=self.laststage:
-       self.laststage=name;self.boss=''
-       self.root.after(0,lambda:self.phase_choice.set('戦闘'))
-       self.root.after(0,lambda:self.play_auto('戦闘'))
+      # Never deduplicate by stage name: the same stage may appear in later rounds.
+      name=stage.group(1).strip()
+      self.root.after(0,lambda n=name:self.handle_event('戦闘開始: '+n,'戦闘'))
      elif boss:
-      name=boss.group(1).strip()
-      if name!=self.boss:
-       self.boss=name
-       base=re.sub(r'\s*Phase\d+$','',name,flags=re.I).strip()
-       def update(n=name,b=base):
-        self.phase_choice.set('ボス')
-        matches=[(k,v) for k,v in self.cfg.get('boss',{}).items() if k.casefold() in (n.casefold(),b.casefold())]
-        if matches:self.play(matches[0][1])
-        else:self.play_auto('ボス')
-       self.root.after(0,update)
-  except Exception as e:self.root.after(0,lambda msg=str(e):self.status.set('ログ読み込み失敗: '+msg))
+      name=re.sub(r'\(Clone\)$','',boss.group(1).strip(),flags=re.I).strip()
+      self.root.after(0,lambda n=name:self.handle_boss(n))
+   f.close()
+  except Exception as e:
+   self.root.after(0,lambda msg=str(e):self.status.set('ログ読み込み失敗: '+msg))
+ def handle_event(self,description,phase):
+  self.event_status.set('検知イベント: '+description)
+  if phase is None:
+   self.stop_music();self.status.set('ロビー検知: BGM停止を指示しました')
+  else:
+   self.phase_choice.set(phase)
+   self.play_auto(phase)
+ def handle_boss(self,name):
+  self.event_status.set('検知イベント: ボス開始 '+name)
+  self.phase_choice.set('ボス')
+  base=re.sub(r'\s*Phase\d+$','',name,flags=re.I).strip()
+  bosses={k.casefold():v for k,v in self.cfg.get('boss',{}).items()}
+  # Prefer phase-specific override, then generic boss, then difficulty boss music.
+  track=bosses.get(name.casefold()) or bosses.get(base.casefold())
+  if track:self.play(track)
+  else:self.play_auto('ボス')
  def close(self):
   self.stop.set();self.stop_music()
   self.root.destroy()
