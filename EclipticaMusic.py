@@ -60,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
   self.send_error(404)
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.3.4 β');root.geometry('1100x850');root.minsize(760,570);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.3.5 β');root.geometry('1100x850');root.minsize(760,570);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def build(self):
   # Dark gaming theme: legible contrast, large controls and clear primary actions.
   BG='#0b1020'; PANEL='#141d32'; FIELD='#1c2942'; EDGE='#304363'; TEXT='#edf4ff'; MUTED='#9cb0cc'; ACCENT='#3ce6d0'; PURPLE='#9b86ff'
@@ -94,7 +94,7 @@ class App:
   except tk.TclError:pass
   f=ttk.Frame(self.root,padding=12);f.pack(fill='both',expand=True)
   ttk.Label(f,text='◈  ECLIPTICA  /  MUSIC COMPANION',style='Title.TLabel').pack(anchor='w')
-  ttk.Label(f,text='YOUR BATTLE. YOUR SOUNDTRACK.   •   v1.3.4 BETA',style='Muted.TLabel').pack(anchor='w',pady=(2,13))
+  ttk.Label(f,text='YOUR BATTLE. YOUR SOUNDTRACK.   •   v1.3.5 BETA',style='Muted.TLabel').pack(anchor='w',pady=(2,13))
   control=ttk.LabelFrame(f,text='1. 操作パネル',padding=9);control.pack(fill='x')
   r=ttk.Frame(control);r.pack(fill='x',pady=3)
   ttk.Button(r,text='▶ 監視開始',command=self.start,style='Action.TButton').pack(side='left')
@@ -162,10 +162,29 @@ class App:
     ttk.Button(r,text='▶',width=3,command=lambda x=v,k=key:self.play(x.get(),self.get_fallback(k))).pack(side='left');fb=tk.StringVar(value=self.cfg.get('fallback',{}).get(key,''));self.vars[('fallback',key)]=fb;ttk.Label(inner,text='予備MP3 ('+difficulty+' / '+phase+')').pack(anchor='w');fr=ttk.Frame(inner);fr.pack(fill='x');ttk.Entry(fr,textvariable=fb).pack(side='left',fill='x',expand=True);ttk.Button(fr,text='📁',command=lambda x=fb:self.pick(x)).pack(side='left')
   bosses=ttk.Frame(nb,padding=10);nb.add(bosses,text='ボス別BGM')
   ttk.Label(bosses,text='▼ ボスを選択 → 曲を登録 → 設定を保存。候補にない名前は直接入力できます。',style='Muted.TLabel').pack(anchor='w',pady=(0,8))
-  self.boss_rows=ttk.Frame(bosses);self.boss_rows.pack(fill='both',expand=True)
+  # Keep add/remove controls visible while the boss mapping list scrolls.
+  boss_area=ttk.Frame(bosses);boss_area.pack(fill='both',expand=True)
+  boss_canvas=tk.Canvas(boss_area,bg='#0b1020',highlightthickness=0,bd=0)
+  boss_scroll=ttk.Scrollbar(boss_area,orient='vertical',command=boss_canvas.yview)
+  self.boss_rows=ttk.Frame(boss_canvas)
+  boss_window=boss_canvas.create_window((0,0),window=self.boss_rows,anchor='nw')
+  self.boss_rows.bind('<Configure>',lambda e:boss_canvas.configure(scrollregion=boss_canvas.bbox('all')))
+  boss_canvas.bind('<Configure>',lambda e:boss_canvas.itemconfigure(boss_window,width=e.width))
+  boss_canvas.configure(yscrollcommand=boss_scroll.set)
+  boss_scroll.pack(side='right',fill='y');boss_canvas.pack(side='left',fill='both',expand=True)
   for name,track in self.cfg.get('boss',{}).items():self.add_boss_row(name,track)
   if not self.cfg.get('boss'):self.add_boss_row('','')
   ttk.Button(bosses,text='＋ ボスを追加',command=lambda:self.add_boss_row('','')).pack(anchor='w',pady=8)
+  # Mouse wheel scrolls whichever list is under the cursor, including entries.
+  def scroll_lists(event):
+   x,y=self.root.winfo_pointerxy()
+   for sc in (boss_canvas,canvas,guide_canvas):
+    if not sc.winfo_ismapped():continue
+    sx,sy=sc.winfo_rootx(),sc.winfo_rooty()
+    if sx<=x<sx+sc.winfo_width() and sy<=y<sy+sc.winfo_height():
+     if event.delta:sc.yview_scroll(-int(event.delta/120) or (-1 if event.delta>0 else 1),'units')
+     return
+  self.root.bind_all('<MouseWheel>',scroll_lists,add='+')
   ttk.Label(f,text='自動監視: 戦闘・ボス・休憩に試験対応。難易度は手動選択。準備・終了は未対応。',foreground='#f7c879').pack(anchor='w')
   ttk.Label(f,textvariable=self.event_status,padding=6,style='Muted.TLabel').pack(fill='x',pady=(7,0))
   ttk.Label(f,textvariable=self.player_status,padding=6,style='Muted.TLabel').pack(fill='x',pady=(4,0))
