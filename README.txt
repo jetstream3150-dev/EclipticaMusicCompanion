@@ -1,12 +1,6 @@
-Ecliptica Music Companion v0.4 - Windows EXE build sources
+Ecliptica Music Companion v0.5 security/build revision
 
-This ZIP is NOT a prebuilt EXE. Windows is required to build and test.
-Build with GitHub Actions: upload these files (including .github folder) to a GitHub repository, open Actions > Build Windows EXE > Run workflow, download artifact.
-Or install Python on a Windows build PC and run build_windows.bat.
+This package contains source, not a prebuilt EXE.
+Upload all files including .github/workflows/build.yml to GitHub. Run Actions > Build Windows App > Run workflow. Download the artifact, extract all files together, and double-click EclipticaMusicCompanion.exe inside the extracted folder.
 
-End users only need the generated EclipticaMusicCompanion.exe, and Windows WebView2 Runtime (commonly preinstalled on Windows 11).
-The application opens its player in an embedded WebView2 window, not an external browser.
-YouTube iframe restrictions, ads, autoplay policy, and video embed permissions still apply.
-VRChat log detection patterns are experimental and may require updates.
-Settings are saved under %%LOCALAPPDATA%%\EclipticaMusicCompanion\settings.json.
-Only play media you are authorized to use.
+Changes: local media endpoint restricted to files selected in app; localhost Host validation; exception message callback fix; PyInstaller --onedir instead of --onefile. These changes do NOT guarantee that antivirus or Chrome warnings disappear, nor prove the application safe. Review source and scan the downloaded artifact before running. No code signing is provided. YouTube embed autoplay and VRChat event detection are experimental.

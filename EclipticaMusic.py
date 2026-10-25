@@ -13,16 +13,19 @@ LOG=Path(os.environ.get('USERPROFILE',str(Path.home())))/'AppData/LocalLow/VRCha
 DEFAULT={'round':{},'phase':{},'boss':{},'fade':2.0,'volume':80,'log':'','auto':True}
 state={'seq':0,'track':'','fade':2,'volume':.8,'stop':False}
 lock=threading.Lock()
+allowed_media=set()
 class Handler(BaseHTTPRequestHandler):
  def log_message(self,*args):pass
  def do_GET(self):
   u=urlparse(self.path)
+  if self.headers.get('Host','').split(':')[0] not in ('127.0.0.1','localhost'):
+   self.send_error(403);return
   if u.path=='/state':
    with lock: b=json.dumps(state).encode()
    self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(b);return
   if u.path=='/media':
    p=Path(unquote(parse_qs(u.query).get('path',[''])[0]))
-   if not p.is_file() or p.suffix.lower() not in ('.mp3','.wav','.ogg','.m4a'):
+   if str(p.resolve()) not in allowed_media or not p.is_file() or p.suffix.lower() not in ('.mp3','.wav','.ogg','.m4a'):
     self.send_error(404);return
    size=p.stat().st_size;rg=self.headers.get('Range','');start=0;end=size-1
    m=re.match(r'bytes=(\d*)-(\d*)',rg)
@@ -85,6 +88,8 @@ class App:
   track=track.strip()
   if not track:return
   if not track.startswith(('https://youtube.com/','https://www.youtube.com/','https://music.youtube.com/','https://youtu.be/')) and not Path(track).is_file():self.status.set('URLか存在する音楽ファイルを設定してください');return
+  if Path(track).is_file():
+   with lock:allowed_media.add(str(Path(track).resolve()))
   with lock:state.update(seq=state['seq']+1,track=track,fade=max(0,float(self.fade.get())),volume=max(0,min(100,int(self.volume.get())))/100,stop=False)
   self.status.set('切替指示: '+track[:65])
  def stop_music(self):
@@ -118,7 +123,7 @@ class App:
        self.boss=name;phase=re.search(r'Phase(\d+)$',name);base=re.sub(r'Phase\d+$','',name)
        track=(self.cfg.get('phase',{}).get(phase.group(1),'') if phase else '') or self.cfg.get('boss',{}).get(base,'')
        if track:self.root.after(0,lambda t=track:self.play(t))
-  except Exception as e:self.root.after(0,lambda:self.status.set('ログ読み込み失敗: '+str(e)))
+  except Exception as e:self.root.after(0,lambda msg=str(e):self.status.set('ログ読み込み失敗: '+msg))
  def close(self):self.stop.set();self.stop_music();self.root.destroy()
 if __name__=='__main__':
  server=ThreadingHTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=server.serve_forever,daemon=True).start()
