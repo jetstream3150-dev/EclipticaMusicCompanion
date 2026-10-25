@@ -60,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
   self.send_error(404)
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.3.3 β');root.geometry('1080x810');root.minsize(880,670);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.3.4 β');root.geometry('1100x850');root.minsize(760,570);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def build(self):
   # Dark gaming theme: legible contrast, large controls and clear primary actions.
   BG='#0b1020'; PANEL='#141d32'; FIELD='#1c2942'; EDGE='#304363'; TEXT='#edf4ff'; MUTED='#9cb0cc'; ACCENT='#3ce6d0'; PURPLE='#9b86ff'
@@ -92,9 +92,9 @@ class App:
   style.configure('TSpinbox',fieldbackground=FIELD,foreground=TEXT,arrowcolor=ACCENT)
   try:self.root.option_add('*TCombobox*Listbox.background','#1c2942');self.root.option_add('*TCombobox*Listbox.foreground','#edf4ff');self.root.option_add('*TCombobox*Listbox.selectBackground','#355575')
   except tk.TclError:pass
-  f=ttk.Frame(self.root,padding=18);f.pack(fill='both',expand=True)
+  f=ttk.Frame(self.root,padding=12);f.pack(fill='both',expand=True)
   ttk.Label(f,text='◈  ECLIPTICA  /  MUSIC COMPANION',style='Title.TLabel').pack(anchor='w')
-  ttk.Label(f,text='YOUR BATTLE. YOUR SOUNDTRACK.   •   v1.3.3 BETA',style='Muted.TLabel').pack(anchor='w',pady=(2,13))
+  ttk.Label(f,text='YOUR BATTLE. YOUR SOUNDTRACK.   •   v1.3.4 BETA',style='Muted.TLabel').pack(anchor='w',pady=(2,13))
   control=ttk.LabelFrame(f,text='1. 操作パネル',padding=9);control.pack(fill='x')
   r=ttk.Frame(control);r.pack(fill='x',pady=3)
   ttk.Button(r,text='▶ 監視開始',command=self.start,style='Action.TButton').pack(side='left')
@@ -118,22 +118,45 @@ class App:
   ttk.Button(r,text='設定をバックアップ',command=self.export_config).pack(side='left')
   ttk.Button(r,text='設定を復元',command=self.import_config).pack(side='left',padx=5)
   ttk.Button(r,text='保存先を開く',command=self.open_config_dir).pack(side='left',padx=5)
-  lobby_row=ttk.Frame(control);lobby_row.pack(fill='x',pady=4);ttk.Label(lobby_row,text='ロビー・入室BGM').pack(side='left');self.lobby=tk.StringVar(value=self.cfg.get('lobby',''));ttk.Entry(lobby_row,textvariable=self.lobby).pack(side='left',fill='x',expand=True,padx=5);ttk.Button(lobby_row,text='📁',command=lambda:self.pick(self.lobby)).pack(side='left');ttk.Button(lobby_row,text='▶',command=lambda:self.play(self.lobby.get())).pack(side='left');nb=ttk.Notebook(f);nb.pack(fill='both',expand=True,pady=(14,8))
-  guide=ttk.Frame(nb,padding=14);nb.add(guide,text='はじめに')
-  for t in ['① 「難易度別BGM」で戦闘・準備・ボス・終了・休憩の曲を登録','② 「ボス別BGM」で特定ボスの曲を上書き設定（任意）','③ 保存 → 黒いプレイヤーで「再生を有効化」 → 監視開始（自動監視は初期状態でOFF）','④ 途中参加時は現在ログの直近イベントを解析し、可能なら該当BGMを再生します（ログ情報が不足する場合は手動選択）','※ ステージ開始・ボス開始・休憩開始・ロビーをログから試験検知します。難易度は手動選択してください。', '※ YouTubeエラー150/101では予備MP3に自動切替します（設定済みの場合）。', '※ 音楽ファイルはこのPCの絶対パスで保存されます。別PCへの設定移行時は再指定が必要です。']:
-   ttk.Label(guide,text=t,wraplength=890).pack(anchor='w',pady=9)
+  lobby_row=ttk.Frame(control);lobby_row.pack(fill='x',pady=4);ttk.Label(lobby_row,text='ロビー・入室BGM').pack(side='left');self.lobby=tk.StringVar(value=self.cfg.get('lobby',''));ttk.Entry(lobby_row,textvariable=self.lobby).pack(side='left',fill='x',expand=True,padx=5);ttk.Button(lobby_row,text='📁',command=lambda:self.pick(self.lobby)).pack(side='left');ttk.Button(lobby_row,text='▶',command=lambda:self.play(self.lobby.get())).pack(side='left');nb=ttk.Notebook(f);nb.pack(fill='both',expand=True,pady=(8,5))
+  guide=ttk.Frame(nb,padding=4);nb.add(guide,text='はじめに')
+  # Scrollable guide: the original labels were clipped at smaller window sizes.
+  guide_canvas=tk.Canvas(guide,bg=BG,highlightthickness=0,bd=0)
+  guide_scroll=ttk.Scrollbar(guide,orient='vertical',command=guide_canvas.yview)
+  guide_body=ttk.Frame(guide_canvas,padding=14)
+  guide_window=guide_canvas.create_window((0,0),window=guide_body,anchor='nw')
+  guide_body.bind('<Configure>',lambda e:guide_canvas.configure(scrollregion=guide_canvas.bbox('all')))
+  guide_canvas.bind('<Configure>',lambda e:guide_canvas.itemconfigure(guide_window,width=e.width))
+  guide_canvas.configure(yscrollcommand=guide_scroll.set)
+  guide_scroll.pack(side='right',fill='y');guide_canvas.pack(side='left',fill='both',expand=True)
+  ttk.Label(guide_body,text='はじめての方へ  /  3ステップで開始',style='Section.TLabel').pack(anchor='w',pady=(0,8))
+  guide_items=[
+   ('STEP 1  曲を登録','「難易度別BGM」で道中・準備・ボス・終了・休憩の曲を登録。ボス専用の曲は「ボス別BGM」から追加できます。'),
+   ('STEP 2  設定を保存','画面上部の「設定を保存」を押し、別ウィンドウのBGMプレイヤーで再生を有効にしてください。'),
+   ('STEP 3  監視開始','VRChatを起動し「監視開始」を押します。難易度は手動で選んでください。自動監視は初期状態でOFFです。'),
+   ('道中はどの設定？','ゲーム内の道中は「戦闘（道中）」です。「準備」は戦闘前の曲用で、自動検知には未対応です。'),
+   ('自動検知できる場面','ログ上の道中ステージ開始・ボス開始・休憩開始・ロビーを検知します。準備・終了は手動選択してください。'),
+   ('途中参加した場合','直近のログから現在の場面を推定します。ログに情報がない場合は手動再生してください。'),
+   ('YouTubeが再生できない場合','埋め込みエラー150/101では、設定済みの予備MP3へ自動切替します。'),
+   ('設定ファイルについて','ローカル音楽ファイルはPC上の絶対パスで保存されます。別PCでは再指定してください。')]
+  for heading,body in guide_items:
+   block=ttk.Frame(guide_body,padding=(0,4));block.pack(fill='x',pady=4)
+   ttk.Label(block,text=heading,style='Section.TLabel').pack(anchor='w')
+   lbl=ttk.Label(block,text=body,justify='left',style='Muted.TLabel')
+   lbl.pack(anchor='w',fill='x',pady=(3,0))
+   block.bind('<Configure>',lambda e,w=lbl:w.configure(wraplength=max(200,e.width-20)))
   tracks=ttk.Frame(nb,padding=10);nb.add(tracks,text='難易度別BGM')
-  ttk.Label(tracks,text='難易度ごとに5つのフェーズの曲を登録します。休憩はラウンド終了後の「世界の狭間」です。',style='Muted.TLabel').pack(anchor='w',pady=(0,8))
+  ttk.Label(tracks,text='戦闘＝道中のBGM。準備・終了は手動再生用。休憩はラウンド終了後の「世界の狭間」です。',style='Muted.TLabel').pack(anchor='w',pady=(0,8))
   canvas=tk.Canvas(tracks,highlightthickness=0,bg='#0b1020',bd=0);bar=ttk.Scrollbar(tracks,orient='vertical',command=canvas.yview)
   inner=ttk.Frame(canvas);inner.bind('<Configure>',lambda e:canvas.configure(scrollregion=canvas.bbox('all')))
-  canvas.create_window((0,0),window=inner,anchor='nw');canvas.configure(yscrollcommand=bar.set)
+  inner_window=canvas.create_window((0,0),window=inner,anchor='nw');canvas.bind('<Configure>',lambda e:canvas.itemconfigure(inner_window,width=e.width));canvas.configure(yscrollcommand=bar.set)
   bar.pack(side='right',fill='y');canvas.pack(side='left',fill='both',expand=True)
   for difficulty in self.DIFFICULTIES:
    frame=ttk.LabelFrame(inner,text=difficulty,padding=7);frame.pack(fill='x',pady=5)
    for phase in self.PHASES:
     key=difficulty+'|'+phase;v=tk.StringVar(value=self.cfg.get('music',{}).get(key,''));self.vars[('music',key)]=v
     r=ttk.Frame(frame);r.pack(fill='x',pady=2)
-    ttk.Label(r,text=phase,width=11).pack(side='left')
+    ttk.Label(r,text=('戦闘（道中）' if phase=='戦闘' else phase),width=13).pack(side='left')
     ttk.Entry(r,textvariable=v,width=65).pack(side='left',fill='x',expand=True,padx=4)
     ttk.Button(r,text='📁',width=3,command=lambda x=v:self.pick(x)).pack(side='left',padx=2)
     ttk.Button(r,text='▶',width=3,command=lambda x=v,k=key:self.play(x.get(),self.get_fallback(k))).pack(side='left');fb=tk.StringVar(value=self.cfg.get('fallback',{}).get(key,''));self.vars[('fallback',key)]=fb;ttk.Label(inner,text='予備MP3 ('+difficulty+' / '+phase+')').pack(anchor='w');fr=ttk.Frame(inner);fr.pack(fill='x');ttk.Entry(fr,textvariable=fb).pack(side='left',fill='x',expand=True);ttk.Button(fr,text='📁',command=lambda x=fb:self.pick(x)).pack(side='left')
@@ -266,6 +289,8 @@ class App:
   if not track.startswith(('https://youtube.com/','https://www.youtube.com/','https://music.youtube.com/','https://youtu.be/')) and not Path(track).is_file():self.status.set('URLか存在する音楽ファイルを設定してください');return
   if Path(track).is_file():
    with lock:allowed_media.add(str(Path(track).resolve()))
+  if fallback and Path(fallback).is_file():
+   with lock:allowed_media.add(str(Path(fallback).resolve()))
   with lock:state.update(seq=state['seq']+1,track=track,fade=max(0,float(self.fade.get())),volume=max(0,min(100,int(self.volume.get())))/100,stop=False,fallback=fallback)
   self.status.set('切替指示: '+track[:65])
  def stop_music(self):
@@ -285,6 +310,8 @@ class App:
   self.stop=threading.Event();self.round=0;self.boss='';self.laststage=''
   self.worker=threading.Thread(target=self.watch,args=(p,self.stop),daemon=True)
   self.worker.start();self.status.set('監視中: '+p.name)
+  # Recover the latest game state from this session's recent log.
+  self.root.after(250,lambda path=p:self.resume_from_log(path))
   self.event_status.set('検知イベント: 待機中（次のゲームイベントから再生）')
  def resume_from_log(self,p):
   # The most recent ECLIPTICA state in this VRChat session is a best-effort hint.
@@ -306,7 +333,7 @@ class App:
     if kind=='ボス':self.handle_boss(name)
     elif kind=='ロビー':self.handle_event('途中参加・ロビー','ロビー')
     else:self.handle_event('途中参加・推定'+kind,kind)
-   else:self.handle_event('入室・状態不明（ロビーBGMを仮再生）','ロビー')
+   else:self.status.set('現在の場面をログから特定できません。手動で曲を選択してください')
   except (OSError,UnicodeError) as e:self.status.set('途中参加の状態確認に失敗: '+str(e))
  def stop_watch(self):
   self.stop.set();self.status.set('監視停止')
@@ -361,7 +388,7 @@ class App:
   self.event_status.set('検知イベント: ボス開始 '+name)
   self.phase_choice.set('ボス')
   base=re.sub(r'\s*Phase\d+$','',name,flags=re.I).strip()
-  bosses={k.casefold():v for k,v in self.cfg.get('boss',{}).items()}
+  bosses={n.get().strip().casefold():t.get().strip() for (group,_),(n,t) in self.vars.items() if group=='bossrow' and n.get().strip() and t.get().strip()}
   # Prefer phase-specific override, then generic boss, then difficulty boss music.
   track=bosses.get(name.casefold()) or bosses.get(base.casefold())
   if track:self.play(track)
