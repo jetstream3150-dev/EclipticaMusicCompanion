@@ -9,7 +9,7 @@ USER_DIR=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) el
 CFG=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'EclipticaMusicCompanion'/'settings.json'
 CFG.parent.mkdir(parents=True,exist_ok=True)
 LOG=Path(os.environ.get('USERPROFILE',str(Path.home())))/'AppData/LocalLow/VRChat/VRChat'
-DEFAULT={'round':{},'phase':{},'boss':{},'fade':2.0,'volume':80,'log':'','auto':True}
+DEFAULT={'round':{},'waiting':{},'phase':{},'boss':{},'music':{},'fade':2.0,'volume':80,'log':'','auto':True}
 state={'seq':0,'track':'','fade':2,'volume':.8,'stop':False}
 lock=threading.Lock()
 allowed_media=set()
@@ -49,27 +49,98 @@ class Handler(BaseHTTPRequestHandler):
   self.send_error(404)
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=json.loads(CFG.read_text('utf-8')) if CFG.exists() else json.loads(json.dumps(DEFAULT));self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};root.title('Ecliptica Music Companion v0.7');root.geometry('800x670');self.status=tk.StringVar(value='待機中');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start)
+  self.root=root;self.port=port;self.cfg=json.loads(CFG.read_text('utf-8')) if CFG.exists() else json.loads(json.dumps(DEFAULT));self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v0.9');root.geometry('980x760');root.minsize(800,620);self.status=tk.StringVar(value='待機中');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start)
  def build(self):
-  f=ttk.Frame(self.root,padding=12);f.pack(fill='both',expand=True)
-  ttk.Label(f,text='🎵 Ecliptica Music Companion',font=('',16,'bold')).pack(anchor='w')
-  ttk.Label(f,text='YouTube URLを貼るか、MP3・WAVを選択。フェード切替で自分だけに再生します。').pack(anchor='w',pady=6)
-  r=ttk.Frame(f);r.pack(fill='x');ttk.Label(r,text='VRChatログ').pack(side='left');ttk.Entry(r,textvariable=self.log).pack(side='left',fill='x',expand=True,padx=5);ttk.Button(r,text='自動検出',command=self.detect).pack(side='left')
-  r=ttk.Frame(f);r.pack(fill='x',pady=6);ttk.Label(r,text='フェード秒').pack(side='left');ttk.Spinbox(r,from_=0,to=15,increment=.5,textvariable=self.fade,width=6).pack(side='left',padx=5);ttk.Label(r,text='音量 %').pack(side='left',padx=12);ttk.Spinbox(r,from_=0,to=100,textvariable=self.volume,width=6).pack(side='left');ttk.Button(r,text='保存',command=self.save).pack(side='right')
-  nb=ttk.Notebook(f);nb.pack(fill='both',expand=True)
-  for key,title,items in [('round','ラウンド別',[str(i) for i in range(1,11)]),('phase','フェーズ別',[str(i) for i in range(1,6)]),('boss','ボス別',['Kakarot','Corus','Yuki','Gilgamesh'])]:
-   frame=ttk.Frame(nb,padding=8);nb.add(frame,text=title)
-   for k in items:
-    var=tk.StringVar(value=self.cfg.get(key,{}).get(k,''));self.vars[(key,k)]=var
-    row=ttk.Frame(frame);row.pack(fill='x',pady=3);ttk.Label(row,text=k,width=14).pack(side='left');ttk.Entry(row,textvariable=var).pack(side='left',fill='x',expand=True,padx=4);ttk.Button(row,text='ファイル',command=lambda v=var:self.pick(v)).pack(side='left');ttk.Button(row,text='▶',command=lambda v=var:self.play(v.get())).pack(side='left')
-  r=ttk.Frame(f);r.pack(fill='x',pady=10);ttk.Button(r,text='▶ 自動監視開始',command=self.start).pack(side='left');ttk.Button(r,text='■ 監視停止',command=self.stop_watch).pack(side='left',padx=5);ttk.Button(r,text='■ BGM停止',command=self.stop_music).pack(side='left');ttk.Button(r,text='プレイヤー表示',command=self.open_player).pack(side='right')
-  ttk.Label(f,textvariable=self.status,relief='sunken').pack(fill='x')
+  style=ttk.Style(self.root)
+  try:style.theme_use('clam')
+  except tk.TclError:pass
+  style.configure('Title.TLabel',font=('',18,'bold'))
+  style.configure('Action.TButton',padding=(10,7))
+  f=ttk.Frame(self.root,padding=14);f.pack(fill='both',expand=True)
+  ttk.Label(f,text='ECLIPTICA  MUSIC COMPANION  v0.9',style='Title.TLabel').pack(anchor='w')
+  ttk.Label(f,text='Wiki準拠：難易度 × フェーズで設定 ／ 自動判定できない状態は手動で切り替え',foreground='#496a9b').pack(anchor='w',pady=(3,10))
+  control=ttk.LabelFrame(f,text='1. 操作パネル',padding=9);control.pack(fill='x')
+  r=ttk.Frame(control);r.pack(fill='x',pady=3)
+  ttk.Button(r,text='▶ 監視開始',command=self.start,style='Action.TButton').pack(side='left')
+  ttk.Button(r,text='■ 監視停止',command=self.stop_watch).pack(side='left',padx=4)
+  ttk.Button(r,text='■ BGM停止',command=self.stop_music).pack(side='left',padx=4)
+  ttk.Button(r,text='♫ プレイヤー表示',command=self.open_player).pack(side='right')
+  r=ttk.Frame(control);r.pack(fill='x',pady=5)
+  ttk.Label(r,text='現在の難易度').pack(side='left')
+  ttk.Combobox(r,textvariable=self.difficulty,values=self.DIFFICULTIES,state='readonly',width=20).pack(side='left',padx=6)
+  ttk.Label(r,text='現在のフェーズ').pack(side='left',padx=(10,0))
+  ttk.Combobox(r,textvariable=self.phase_choice,values=self.PHASES,state='readonly',width=14).pack(side='left',padx=6)
+  ttk.Button(r,text='▶ 選択した曲を再生',command=self.play_selected).pack(side='left',padx=6)
+  r=ttk.Frame(control);r.pack(fill='x',pady=3)
+  ttk.Label(r,text='VRChatログ').pack(side='left');ttk.Entry(r,textvariable=self.log).pack(side='left',fill='x',expand=True,padx=5)
+  ttk.Button(r,text='最新ログ',command=self.detect).pack(side='left')
+  r=ttk.Frame(control);r.pack(fill='x',pady=3)
+  ttk.Label(r,text='フェード(秒)').pack(side='left');ttk.Spinbox(r,from_=0,to=15,increment=.5,textvariable=self.fade,width=6).pack(side='left',padx=5)
+  ttk.Label(r,text='音量(%)').pack(side='left',padx=(12,0));ttk.Spinbox(r,from_=0,to=100,textvariable=self.volume,width=6).pack(side='left',padx=5)
+  ttk.Button(r,text='💾 保存',command=self.save,style='Action.TButton').pack(side='right')
+  nb=ttk.Notebook(f);nb.pack(fill='both',expand=True,pady=(12,7))
+  guide=ttk.Frame(nb,padding=14);nb.add(guide,text='はじめに')
+  for t in ['① 「難易度別BGM」で戦闘・準備・ボス・終了・休憩の曲を登録','② 「ボス別BGM」で特定ボスの曲を上書き設定（任意）','③ 保存 → 黒いプレイヤーで「再生を有効化」 → 監視開始','④ 途中参加時は、難易度を選択して手動再生できます','※ VRChatログに出ない情報は自動検出できません。ログ判定は実地検証中です。']:
+   ttk.Label(guide,text=t,wraplength=820).pack(anchor='w',pady=9)
+  tracks=ttk.Frame(nb,padding=10);nb.add(tracks,text='難易度別BGM')
+  ttk.Label(tracks,text='難易度ごとに5つのフェーズの曲を登録します。休憩はラウンド終了後の「世界の狭間」です。',foreground='#496a9b').pack(anchor='w',pady=(0,8))
+  canvas=tk.Canvas(tracks,highlightthickness=0);bar=ttk.Scrollbar(tracks,orient='vertical',command=canvas.yview)
+  inner=ttk.Frame(canvas);inner.bind('<Configure>',lambda e:canvas.configure(scrollregion=canvas.bbox('all')))
+  canvas.create_window((0,0),window=inner,anchor='nw');canvas.configure(yscrollcommand=bar.set)
+  bar.pack(side='right',fill='y');canvas.pack(side='left',fill='both',expand=True)
+  for difficulty in self.DIFFICULTIES:
+   frame=ttk.LabelFrame(inner,text=difficulty,padding=7);frame.pack(fill='x',pady=5)
+   for phase in self.PHASES:
+    key=difficulty+'|'+phase;v=tk.StringVar(value=self.cfg.get('music',{}).get(key,''));self.vars[('music',key)]=v
+    r=ttk.Frame(frame);r.pack(fill='x',pady=2)
+    ttk.Label(r,text=phase,width=11).pack(side='left')
+    ttk.Entry(r,textvariable=v,width=65).pack(side='left',fill='x',expand=True,padx=4)
+    ttk.Button(r,text='📁',width=3,command=lambda x=v:self.pick(x)).pack(side='left',padx=2)
+    ttk.Button(r,text='▶',width=3,command=lambda x=v:self.play(x.get())).pack(side='left')
+  bosses=ttk.Frame(nb,padding=10);nb.add(bosses,text='ボス別BGM')
+  ttk.Label(bosses,text='ボス名は自由に追加できます。ログ内のボス名と一致した場合に優先します。',foreground='#496a9b').pack(anchor='w',pady=(0,8))
+  self.boss_rows=ttk.Frame(bosses);self.boss_rows.pack(fill='both',expand=True)
+  for name,track in self.cfg.get('boss',{}).items():self.add_boss_row(name,track)
+  if not self.cfg.get('boss'):self.add_boss_row('','')
+  ttk.Button(bosses,text='＋ ボスを追加',command=lambda:self.add_boss_row('','')).pack(anchor='w',pady=8)
+  ttk.Label(f,text='自動監視はログのステージ/ボス通知を利用します。難易度・準備・終了・休憩の自動判定は未検証です。',foreground='#98621b').pack(anchor='w')
+  ttk.Label(f,textvariable=self.status,relief='sunken',padding=8).pack(fill='x',pady=(7,0))
+ DIFFICULTIES=('Primal','Penumbra','Antumbra','Umbra','Eclipse','Eye of the Eclipse')
+ PHASES=('戦闘','準備','ボス','終了','休憩')
+ def add_boss_row(self,name,track):
+  r=ttk.Frame(self.boss_rows);r.pack(fill='x',pady=3)
+  n=tk.StringVar(value=name);v=tk.StringVar(value=track)
+  self.vars[('bossrow',str(id(r)))]=(n,v)
+  ttk.Entry(r,textvariable=n,width=22).pack(side='left',padx=4)
+  ttk.Entry(r,textvariable=v).pack(side='left',fill='x',expand=True,padx=4)
+  ttk.Button(r,text='📁',command=lambda:self.pick(v)).pack(side='left')
+  ttk.Button(r,text='▶',command=lambda:self.play(v.get())).pack(side='left',padx=3)
+  def remove():
+   self.vars.pop(('bossrow',str(id(r))),None);r.destroy()
+  ttk.Button(r,text='×',command=remove).pack(side='left')
+ def play_selected(self):
+  key=self.difficulty.get()+'|'+self.phase_choice.get()
+  v=self.vars.get(('music',key));track=v.get().strip() if v else ''
+  if not track:self.status.set('選択した難易度・フェーズの曲が未設定です');return
+  self.play(track)
+ def play_auto(self,phase):
+  difficulty=self.difficulty.get();key=difficulty+'|'+phase
+  v=self.vars.get(('music',key));track=v.get().strip() if v else ''
+  if track:self.play(track)
+  else:self.status.set(f'{difficulty} / {phase} の曲は未設定です')
  def pick(self,v):
   p=filedialog.askopenfilename(filetypes=[('音楽','*.mp3 *.wav *.ogg *.m4a')]);
   if p:v.set(p)
  def save(self):
-  for (group,k),v in self.vars.items():self.cfg.setdefault(group,{})[k]=v.get().strip()
-  self.cfg.update(log=self.log.get(),fade=float(self.fade.get()),volume=int(self.volume.get()));CFG.write_text(json.dumps(self.cfg,ensure_ascii=False,indent=2),'utf-8');self.status.set('設定保存済み')
+  music={};boss={}
+  for (group,k),v in self.vars.items():
+   if group=='music' and v.get().strip():music[k]=v.get().strip()
+   elif group=='bossrow':
+    n,t=v;name=n.get().strip()
+    if name and t.get().strip():boss[name]=t.get().strip()
+  self.cfg['music']=music;self.cfg['boss']=boss
+  self.cfg.update(log=self.log.get(),fade=float(self.fade.get()),volume=int(self.volume.get()))
+  CFG.write_text(json.dumps(self.cfg,ensure_ascii=False,indent=2),'utf-8');self.status.set('設定を保存しました')
  def detect(self):
   files=sorted(LOG.glob('output_log_*.txt'),key=lambda p:p.stat().st_mtime,reverse=True)
   if files:self.log.set(str(files[0]));self.status.set('最新ログを選択しました')
@@ -124,14 +195,20 @@ class App:
      if stage:
       name=stage.group(1)
       if name!=self.laststage:
-       self.laststage=name;self.round+=1;self.boss='';track=self.cfg.get('round',{}).get(str(self.round),'')
-       if track:self.root.after(0,lambda t=track:self.play(t))
+       self.laststage=name;self.boss=''
+       self.root.after(0,lambda:self.phase_choice.set('戦闘'))
+       self.root.after(0,lambda:self.play_auto('戦闘'))
      elif boss:
-      name=boss.group(1)
+      name=boss.group(1).strip()
       if name!=self.boss:
-       self.boss=name;phase=re.search(r'Phase(\d+)$',name);base=re.sub(r'Phase\d+$','',name)
-       track=(self.cfg.get('phase',{}).get(phase.group(1),'') if phase else '') or self.cfg.get('boss',{}).get(base,'')
-       if track:self.root.after(0,lambda t=track:self.play(t))
+       self.boss=name
+       base=re.sub(r'\s*Phase\d+$','',name,flags=re.I).strip()
+       def update(n=name,b=base):
+        self.phase_choice.set('ボス')
+        matches=[(k,v) for k,v in self.cfg.get('boss',{}).items() if k.casefold() in (n.casefold(),b.casefold())]
+        if matches:self.play(matches[0][1])
+        else:self.play_auto('ボス')
+       self.root.after(0,update)
   except Exception as e:self.root.after(0,lambda msg=str(e):self.status.set('ログ読み込み失敗: '+msg))
  def close(self):
   self.stop.set();self.stop_music()
