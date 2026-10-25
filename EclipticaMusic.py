@@ -1,15 +1,16 @@
-import json,os,re,threading,time,webbrowser,mimetypes,sys,subprocess
+import json,os,re,threading,time,webbrowser,mimetypes,sys,subprocess,shutil
 from pathlib import Path
 from urllib.parse import urlparse,parse_qs,unquote
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
 import tkinter as tk
 from tkinter import ttk,filedialog,messagebox
+from datetime import datetime
 BASE=Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 USER_DIR=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else BASE
 CFG=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'EclipticaMusicCompanion'/'settings.json'
 CFG.parent.mkdir(parents=True,exist_ok=True)
 LOG=Path(os.environ.get('USERPROFILE',str(Path.home())))/'AppData/LocalLow/VRChat/VRChat'
-DEFAULT={'round':{},'waiting':{},'phase':{},'boss':{},'music':{},'fade':2.0,'volume':80,'log':'','auto':True}
+DEFAULT={'round':{},'waiting':{},'phase':{},'boss':{},'music':{},'fade':2.0,'volume':80,'log':'','auto':False}
 state={'seq':0,'track':'','fade':2,'volume':.8,'stop':False}
 lock=threading.Lock()
 allowed_media=set()
@@ -49,7 +50,7 @@ class Handler(BaseHTTPRequestHandler):
   self.send_error(404)
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=json.loads(CFG.read_text('utf-8')) if CFG.exists() else json.loads(json.dumps(DEFAULT));self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v0.9');root.geometry('980x760');root.minsize(800,620);self.status=tk.StringVar(value='待機中');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.0 配布準備版');root.geometry('980x760');root.minsize(800,620);self.status=tk.StringVar(value='待機中');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start)
  def build(self):
   style=ttk.Style(self.root)
   try:style.theme_use('clam')
@@ -57,8 +58,8 @@ class App:
   style.configure('Title.TLabel',font=('',18,'bold'))
   style.configure('Action.TButton',padding=(10,7))
   f=ttk.Frame(self.root,padding=14);f.pack(fill='both',expand=True)
-  ttk.Label(f,text='ECLIPTICA  MUSIC COMPANION  v0.9',style='Title.TLabel').pack(anchor='w')
-  ttk.Label(f,text='Wiki準拠：難易度 × フェーズで設定 ／ 自動判定できない状態は手動で切り替え',foreground='#496a9b').pack(anchor='w',pady=(3,10))
+  ttk.Label(f,text='ECLIPTICA  MUSIC COMPANION  v1.0',style='Title.TLabel').pack(anchor='w')
+  ttk.Label(f,text='個人用BGMプレイヤー ｜ 設定はPCごとに保存 ｜ VRChat本体は変更しません',foreground='#496a9b').pack(anchor='w',pady=(3,10))
   control=ttk.LabelFrame(f,text='1. 操作パネル',padding=9);control.pack(fill='x')
   r=ttk.Frame(control);r.pack(fill='x',pady=3)
   ttk.Button(r,text='▶ 監視開始',command=self.start,style='Action.TButton').pack(side='left')
@@ -78,9 +79,13 @@ class App:
   ttk.Label(r,text='フェード(秒)').pack(side='left');ttk.Spinbox(r,from_=0,to=15,increment=.5,textvariable=self.fade,width=6).pack(side='left',padx=5)
   ttk.Label(r,text='音量(%)').pack(side='left',padx=(12,0));ttk.Spinbox(r,from_=0,to=100,textvariable=self.volume,width=6).pack(side='left',padx=5)
   ttk.Button(r,text='💾 保存',command=self.save,style='Action.TButton').pack(side='right')
+  r=ttk.Frame(control);r.pack(fill='x',pady=3)
+  ttk.Button(r,text='設定をバックアップ',command=self.export_config).pack(side='left')
+  ttk.Button(r,text='設定を復元',command=self.import_config).pack(side='left',padx=5)
+  ttk.Button(r,text='保存先を開く',command=self.open_config_dir).pack(side='left',padx=5)
   nb=ttk.Notebook(f);nb.pack(fill='both',expand=True,pady=(12,7))
   guide=ttk.Frame(nb,padding=14);nb.add(guide,text='はじめに')
-  for t in ['① 「難易度別BGM」で戦闘・準備・ボス・終了・休憩の曲を登録','② 「ボス別BGM」で特定ボスの曲を上書き設定（任意）','③ 保存 → 黒いプレイヤーで「再生を有効化」 → 監視開始','④ 途中参加時は、難易度を選択して手動再生できます','※ VRChatログに出ない情報は自動検出できません。ログ判定は実地検証中です。']:
+  for t in ['① 「難易度別BGM」で戦闘・準備・ボス・終了・休憩の曲を登録','② 「ボス別BGM」で特定ボスの曲を上書き設定（任意）','③ 保存 → 黒いプレイヤーで「再生を有効化」 → 監視開始（自動監視は初期状態でOFF）','④ 途中参加時は、難易度とフェーズを選択して手動再生できます','※ 自動判定はステージ開始・ボス開始のみ試験対応。休憩などは手動切替してください。', '※ YouTube動画は埋め込み制限により再生できない場合があります。', '※ 音楽ファイルはこのPCの絶対パスで保存されます。別PCへの設定移行時は再指定が必要です。']:
    ttk.Label(guide,text=t,wraplength=820).pack(anchor='w',pady=9)
   tracks=ttk.Frame(nb,padding=10);nb.add(tracks,text='難易度別BGM')
   ttk.Label(tracks,text='難易度ごとに5つのフェーズの曲を登録します。休憩はラウンド終了後の「世界の狭間」です。',foreground='#496a9b').pack(anchor='w',pady=(0,8))
@@ -107,6 +112,37 @@ class App:
   ttk.Label(f,textvariable=self.status,relief='sunken',padding=8).pack(fill='x',pady=(7,0))
  DIFFICULTIES=('Primal','Penumbra','Antumbra','Umbra','Eclipse','Eye of the Eclipse')
  PHASES=('戦闘','準備','ボス','終了','休憩')
+ def load_config(self):
+  if not CFG.exists():return json.loads(json.dumps(DEFAULT))
+  try:
+   obj=json.loads(CFG.read_text('utf-8'))
+   if not isinstance(obj,dict):raise ValueError('設定の形式が正しくありません')
+   cfg=json.loads(json.dumps(DEFAULT));cfg.update(obj)
+   if not isinstance(cfg.get('music'),dict) or not isinstance(cfg.get('boss'),dict):raise ValueError('曲設定が正しくありません')
+   return cfg
+  except Exception:
+   try:CFG.rename(CFG.with_name('settings_broken_'+datetime.now().strftime('%Y%m%d_%H%M%S')+'.json'))
+   except OSError:pass
+   return json.loads(json.dumps(DEFAULT))
+ def export_config(self):
+  self.save()
+  target=filedialog.asksaveasfilename(title='設定をバックアップ',defaultextension='.json',initialfile='EclipticaMusicCompanion_backup.json',filetypes=[('JSON','*.json')])
+  if target:
+   try:shutil.copy2(CFG,target);messagebox.showinfo('完了','設定を書き出しました。')
+   except Exception as e:messagebox.showerror('失敗',str(e))
+ def import_config(self):
+  source=filedialog.askopenfilename(title='設定を復元',filetypes=[('JSON','*.json')])
+  if not source:return
+  try:
+   obj=json.loads(Path(source).read_text('utf-8'))
+   if not isinstance(obj,dict) or not isinstance(obj.get('music',{}),dict) or not isinstance(obj.get('boss',{}),dict):raise ValueError('対応していない設定ファイルです')
+   if not messagebox.askyesno('確認','現在の設定を置き換えてアプリを再起動しますか？'):return
+   CFG.write_text(json.dumps(obj,ensure_ascii=False,indent=2),'utf-8')
+   messagebox.showinfo('復元完了','設定を復元しました。アプリを終了して起動し直してください。')
+  except Exception as e:messagebox.showerror('復元失敗',str(e))
+ def open_config_dir(self):
+  try:os.startfile(str(CFG.parent))
+  except Exception as e:messagebox.showerror('開けませんでした',str(e))
  def add_boss_row(self,name,track):
   r=ttk.Frame(self.boss_rows);r.pack(fill='x',pady=3)
   n=tk.StringVar(value=name);v=tk.StringVar(value=track)
@@ -140,7 +176,9 @@ class App:
     if name and t.get().strip():boss[name]=t.get().strip()
   self.cfg['music']=music;self.cfg['boss']=boss
   self.cfg.update(log=self.log.get(),fade=float(self.fade.get()),volume=int(self.volume.get()))
-  CFG.write_text(json.dumps(self.cfg,ensure_ascii=False,indent=2),'utf-8');self.status.set('設定を保存しました')
+  try:
+   tmp=CFG.with_suffix('.tmp');tmp.write_text(json.dumps(self.cfg,ensure_ascii=False,indent=2),'utf-8');tmp.replace(CFG);self.status.set('設定を保存しました')
+  except Exception as e:messagebox.showerror('保存失敗',str(e))
  def detect(self):
   files=sorted(LOG.glob('output_log_*.txt'),key=lambda p:p.stat().st_mtime,reverse=True)
   if files:self.log.set(str(files[0]));self.status.set('最新ログを選択しました')
@@ -189,7 +227,14 @@ class App:
     f.seek(0,2)
     while not signal.is_set():
      line=f.readline()
-     if not line:time.sleep(.25);continue
+     if not line:
+      time.sleep(.25)
+      try:
+       newest=max(LOG.glob('output_log_*.txt'),key=lambda x:x.stat().st_mtime,default=None)
+       if newest and newest!=p and newest.stat().st_mtime>p.stat().st_mtime:
+        self.root.after(0,lambda:self.status.set('新しいVRChatログを検出しました。監視開始を押して切り替えてください。'))
+      except OSError:pass
+      continue
      stage=re.search(r'ECLIPTICA - now in stage: (.+?) on phase:',line)
      boss=re.search(r'ECLIPTICA - now fighting boss: (.+?)\(Clone\) on phase:',line)
      if stage:
