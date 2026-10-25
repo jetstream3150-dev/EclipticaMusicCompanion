@@ -60,135 +60,158 @@ class Handler(BaseHTTPRequestHandler):
   self.send_error(404)
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.3.5 β');root.geometry('1100x850');root.minsize(760,570);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.4 β');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def build(self):
-  # Dark gaming theme: legible contrast, large controls and clear primary actions.
-  BG='#0b1020'; PANEL='#141d32'; FIELD='#1c2942'; EDGE='#304363'; TEXT='#edf4ff'; MUTED='#9cb0cc'; ACCENT='#3ce6d0'; PURPLE='#9b86ff'
+  BG='#0b1020';PANEL='#17263d';FIELD='#263650';EDGE='#304363';TEXT='#edf4ff';MUTED='#9cb0cc';ACCENT='#49e7da'
   style=ttk.Style(self.root)
   try:style.theme_use('clam')
   except tk.TclError:pass
-  style.configure('.',font=('Segoe UI',10),background=BG,foreground=TEXT)
+  style.configure('.',font=('Segoe UI',11),background=BG,foreground=TEXT)
   style.configure('TFrame',background=BG)
   style.configure('TLabel',background=BG,foreground=TEXT)
   style.configure('Muted.TLabel',background=BG,foreground=MUTED)
-  style.configure('Title.TLabel',font=('Segoe UI',20,'bold'),background=BG,foreground=ACCENT)
-  style.configure('Section.TLabel',font=('Segoe UI',12,'bold'),background=BG,foreground=TEXT)
-  style.configure('TLabelframe',background=PANEL,bordercolor=EDGE,relief='solid')
-  style.configure('TLabelframe.Label',font=('Segoe UI',11,'bold'),background=BG,foreground=ACCENT)
-  style.configure('TButton',background=FIELD,foreground=TEXT,padding=(12,8),borderwidth=1,bordercolor=EDGE,font=('Segoe UI',10,'bold'))
-  style.map('TButton',background=[('active','#304365'),('pressed','#263c57')],foreground=[('disabled','#69788f')])
-  style.configure('Action.TButton',background=ACCENT,foreground='#061521',padding=(17,10),font=('Segoe UI',11,'bold'),bordercolor=ACCENT)
-  style.map('Action.TButton',background=[('active','#8af9e9'),('pressed','#20b9aa')],foreground=[('active','#061521')])
-  style.configure('Danger.TButton',background='#41283e',foreground='#ffc6d3',bordercolor='#704158')
-  style.map('Danger.TButton',background=[('active','#64374d')])
-  style.configure('TEntry',fieldbackground=FIELD,foreground=TEXT,insertcolor=TEXT,bordercolor=EDGE,padding=7)
-  style.configure('TCombobox',fieldbackground=FIELD,background=FIELD,foreground=TEXT,arrowcolor=ACCENT,bordercolor=EDGE,padding=6)
+  style.configure('Title.TLabel',background=BG,foreground=ACCENT,font=('Segoe UI',20,'bold'))
+  style.configure('Heading.TLabel',background=BG,foreground=TEXT,font=('Segoe UI',14,'bold'))
+  style.configure('TButton',background=FIELD,foreground=TEXT,padding=(12,10),bordercolor=EDGE,font=('Segoe UI',11,'bold'))
+  style.map('TButton',background=[('active','#34516d')])
+  style.configure('Action.TButton',background=ACCENT,foreground='#061521',padding=(15,17),font=('Segoe UI',15,'bold'))
+  style.map('Action.TButton',background=[('active','#86ffed')])
+  style.configure('TEntry',fieldbackground=FIELD,foreground=TEXT,insertcolor=TEXT,padding=8)
+  style.configure('TCombobox',fieldbackground=FIELD,background=FIELD,foreground=TEXT,arrowcolor=ACCENT,padding=7)
   style.map('TCombobox',fieldbackground=[('readonly',FIELD)],foreground=[('readonly',TEXT)],selectbackground=[('readonly',FIELD)],selectforeground=[('readonly',TEXT)])
   style.configure('TNotebook',background=BG,borderwidth=0)
-  style.configure('TNotebook.Tab',background=FIELD,foreground=MUTED,padding=(17,11),font=('Segoe UI',10,'bold'))
-  style.map('TNotebook.Tab',background=[('selected',PANEL),('active','#263650')],foreground=[('selected',ACCENT),('active',TEXT)])
-  style.configure('TScrollbar',background=FIELD,troughcolor=BG,arrowcolor=MUTED)
-  style.configure('Horizontal.TScale',background=PANEL,troughcolor=FIELD)
-  style.configure('TSpinbox',fieldbackground=FIELD,foreground=TEXT,arrowcolor=ACCENT)
-  try:self.root.option_add('*TCombobox*Listbox.background','#1c2942');self.root.option_add('*TCombobox*Listbox.foreground','#edf4ff');self.root.option_add('*TCombobox*Listbox.selectBackground','#355575')
-  except tk.TclError:pass
-  f=ttk.Frame(self.root,padding=12);f.pack(fill='both',expand=True)
-  ttk.Label(f,text='◈  ECLIPTICA  /  MUSIC COMPANION',style='Title.TLabel').pack(anchor='w')
-  ttk.Label(f,text='YOUR BATTLE. YOUR SOUNDTRACK.   •   v1.3.5 BETA',style='Muted.TLabel').pack(anchor='w',pady=(2,13))
-  control=ttk.LabelFrame(f,text='1. 操作パネル',padding=9);control.pack(fill='x')
-  r=ttk.Frame(control);r.pack(fill='x',pady=3)
-  ttk.Button(r,text='▶ 監視開始',command=self.start,style='Action.TButton').pack(side='left')
-  ttk.Button(r,text='■ 監視停止',command=self.stop_watch,style='Danger.TButton').pack(side='left',padx=4)
-  ttk.Button(r,text='■ BGM停止',command=self.stop_music,style='Danger.TButton').pack(side='left',padx=4)
-  ttk.Button(r,text='♫ プレイヤー表示',command=self.open_player).pack(side='right')
-  r=ttk.Frame(control);r.pack(fill='x',pady=5)
-  ttk.Label(r,text='現在の難易度').pack(side='left')
-  ttk.Combobox(r,textvariable=self.difficulty,values=self.DIFFICULTIES,state='readonly',width=20).pack(side='left',padx=6)
-  ttk.Label(r,text='現在のフェーズ').pack(side='left',padx=(10,0))
-  ttk.Combobox(r,textvariable=self.phase_choice,values=self.PHASES,state='readonly',width=14).pack(side='left',padx=6)
-  ttk.Button(r,text='▶ 選択した曲を再生',command=self.play_selected).pack(side='left',padx=6)
-  r=ttk.Frame(control);r.pack(fill='x',pady=3)
-  ttk.Label(r,text='VRChatログ').pack(side='left');ttk.Entry(r,textvariable=self.log).pack(side='left',fill='x',expand=True,padx=5)
-  ttk.Button(r,text='最新ログ',command=self.detect).pack(side='left')
-  r=ttk.Frame(control);r.pack(fill='x',pady=3)
-  ttk.Label(r,text='フェード(秒)').pack(side='left');ttk.Spinbox(r,from_=0,to=15,increment=.5,textvariable=self.fade,width=6).pack(side='left',padx=5)
-  ttk.Label(r,text='音量(%)').pack(side='left',padx=(12,0));ttk.Scale(r,from_=0,to=100,variable=self.volume,orient='horizontal',command=self.on_volume_change,length=180).pack(side='left',padx=5);ttk.Label(r,textvariable=self.volume,width=4).pack(side='left')
-  ttk.Button(r,text='💾 設定を保存',command=self.save,style='Action.TButton').pack(side='right')
-  r=ttk.Frame(control);r.pack(fill='x',pady=3)
-  ttk.Button(r,text='設定をバックアップ',command=self.export_config).pack(side='left')
-  ttk.Button(r,text='設定を復元',command=self.import_config).pack(side='left',padx=5)
-  ttk.Button(r,text='保存先を開く',command=self.open_config_dir).pack(side='left',padx=5)
-  lobby_row=ttk.Frame(control);lobby_row.pack(fill='x',pady=4);ttk.Label(lobby_row,text='ロビー・入室BGM').pack(side='left');self.lobby=tk.StringVar(value=self.cfg.get('lobby',''));ttk.Entry(lobby_row,textvariable=self.lobby).pack(side='left',fill='x',expand=True,padx=5);ttk.Button(lobby_row,text='📁',command=lambda:self.pick(self.lobby)).pack(side='left');ttk.Button(lobby_row,text='▶',command=lambda:self.play(self.lobby.get())).pack(side='left');nb=ttk.Notebook(f);nb.pack(fill='both',expand=True,pady=(8,5))
-  guide=ttk.Frame(nb,padding=4);nb.add(guide,text='はじめに')
-  # Scrollable guide: the original labels were clipped at smaller window sizes.
-  guide_canvas=tk.Canvas(guide,bg=BG,highlightthickness=0,bd=0)
-  guide_scroll=ttk.Scrollbar(guide,orient='vertical',command=guide_canvas.yview)
-  guide_body=ttk.Frame(guide_canvas,padding=14)
-  guide_window=guide_canvas.create_window((0,0),window=guide_body,anchor='nw')
-  guide_body.bind('<Configure>',lambda e:guide_canvas.configure(scrollregion=guide_canvas.bbox('all')))
-  guide_canvas.bind('<Configure>',lambda e:guide_canvas.itemconfigure(guide_window,width=e.width))
-  guide_canvas.configure(yscrollcommand=guide_scroll.set)
-  guide_scroll.pack(side='right',fill='y');guide_canvas.pack(side='left',fill='both',expand=True)
-  ttk.Label(guide_body,text='はじめての方へ  /  3ステップで開始',style='Section.TLabel').pack(anchor='w',pady=(0,8))
-  guide_items=[
-   ('STEP 1  曲を登録','「難易度別BGM」で道中・準備・ボス・終了・休憩の曲を登録。ボス専用の曲は「ボス別BGM」から追加できます。'),
-   ('STEP 2  設定を保存','画面上部の「設定を保存」を押し、別ウィンドウのBGMプレイヤーで再生を有効にしてください。'),
-   ('STEP 3  監視開始','VRChatを起動し「監視開始」を押します。難易度は手動で選んでください。自動監視は初期状態でOFFです。'),
-   ('道中はどの設定？','ゲーム内の道中は「戦闘（道中）」です。「準備」は戦闘前の曲用で、自動検知には未対応です。'),
-   ('自動検知できる場面','ログ上の道中ステージ開始・ボス開始・休憩開始・ロビーを検知します。準備・終了は手動選択してください。'),
-   ('途中参加した場合','直近のログから現在の場面を推定します。ログに情報がない場合は手動再生してください。'),
-   ('YouTubeが再生できない場合','埋め込みエラー150/101では、設定済みの予備MP3へ自動切替します。'),
-   ('設定ファイルについて','ローカル音楽ファイルはPC上の絶対パスで保存されます。別PCでは再指定してください。')]
-  for heading,body in guide_items:
-   block=ttk.Frame(guide_body,padding=(0,4));block.pack(fill='x',pady=4)
-   ttk.Label(block,text=heading,style='Section.TLabel').pack(anchor='w')
-   lbl=ttk.Label(block,text=body,justify='left',style='Muted.TLabel')
-   lbl.pack(anchor='w',fill='x',pady=(3,0))
-   block.bind('<Configure>',lambda e,w=lbl:w.configure(wraplength=max(200,e.width-20)))
-  tracks=ttk.Frame(nb,padding=10);nb.add(tracks,text='難易度別BGM')
-  ttk.Label(tracks,text='戦闘＝道中のBGM。準備・終了は手動再生用。休憩はラウンド終了後の「世界の狭間」です。',style='Muted.TLabel').pack(anchor='w',pady=(0,8))
-  canvas=tk.Canvas(tracks,highlightthickness=0,bg='#0b1020',bd=0);bar=ttk.Scrollbar(tracks,orient='vertical',command=canvas.yview)
-  inner=ttk.Frame(canvas);inner.bind('<Configure>',lambda e:canvas.configure(scrollregion=canvas.bbox('all')))
-  inner_window=canvas.create_window((0,0),window=inner,anchor='nw');canvas.bind('<Configure>',lambda e:canvas.itemconfigure(inner_window,width=e.width));canvas.configure(yscrollcommand=bar.set)
-  bar.pack(side='right',fill='y');canvas.pack(side='left',fill='both',expand=True)
+  style.configure('TNotebook.Tab',background=FIELD,foreground=MUTED,padding=(18,12),font=('Segoe UI',11,'bold'))
+  style.map('TNotebook.Tab',background=[('selected',PANEL)],foreground=[('selected',ACCENT)])
+  style.configure('Horizontal.TScale',background=BG,troughcolor=FIELD)
+  style.configure('TScrollbar',background=FIELD,troughcolor=BG)
+  self.root.option_add('*TCombobox*Listbox.background',FIELD)
+  self.root.option_add('*TCombobox*Listbox.foreground',TEXT)
+  self.root.option_add('*TCombobox*Listbox.selectBackground','#34516d')
+  self.lobby=tk.StringVar(value=self.cfg.get('lobby',''))
+  # Create all existing music variables, even when their editors are not visible.
   for difficulty in self.DIFFICULTIES:
-   frame=ttk.LabelFrame(inner,text=difficulty,padding=7);frame.pack(fill='x',pady=5)
    for phase in self.PHASES:
-    key=difficulty+'|'+phase;v=tk.StringVar(value=self.cfg.get('music',{}).get(key,''));self.vars[('music',key)]=v
-    r=ttk.Frame(frame);r.pack(fill='x',pady=2)
-    ttk.Label(r,text=('戦闘（道中）' if phase=='戦闘' else phase),width=13).pack(side='left')
-    ttk.Entry(r,textvariable=v,width=65).pack(side='left',fill='x',expand=True,padx=4)
-    ttk.Button(r,text='📁',width=3,command=lambda x=v:self.pick(x)).pack(side='left',padx=2)
-    ttk.Button(r,text='▶',width=3,command=lambda x=v,k=key:self.play(x.get(),self.get_fallback(k))).pack(side='left');fb=tk.StringVar(value=self.cfg.get('fallback',{}).get(key,''));self.vars[('fallback',key)]=fb;ttk.Label(inner,text='予備MP3 ('+difficulty+' / '+phase+')').pack(anchor='w');fr=ttk.Frame(inner);fr.pack(fill='x');ttk.Entry(fr,textvariable=fb).pack(side='left',fill='x',expand=True);ttk.Button(fr,text='📁',command=lambda x=fb:self.pick(x)).pack(side='left')
-  bosses=ttk.Frame(nb,padding=10);nb.add(bosses,text='ボス別BGM')
-  ttk.Label(bosses,text='▼ ボスを選択 → 曲を登録 → 設定を保存。候補にない名前は直接入力できます。',style='Muted.TLabel').pack(anchor='w',pady=(0,8))
-  # Keep add/remove controls visible while the boss mapping list scrolls.
-  boss_area=ttk.Frame(bosses);boss_area.pack(fill='both',expand=True)
-  boss_canvas=tk.Canvas(boss_area,bg='#0b1020',highlightthickness=0,bd=0)
-  boss_scroll=ttk.Scrollbar(boss_area,orient='vertical',command=boss_canvas.yview)
-  self.boss_rows=ttk.Frame(boss_canvas)
-  boss_window=boss_canvas.create_window((0,0),window=self.boss_rows,anchor='nw')
-  self.boss_rows.bind('<Configure>',lambda e:boss_canvas.configure(scrollregion=boss_canvas.bbox('all')))
-  boss_canvas.bind('<Configure>',lambda e:boss_canvas.itemconfigure(boss_window,width=e.width))
-  boss_canvas.configure(yscrollcommand=boss_scroll.set)
-  boss_scroll.pack(side='right',fill='y');boss_canvas.pack(side='left',fill='both',expand=True)
-  for name,track in self.cfg.get('boss',{}).items():self.add_boss_row(name,track)
-  if not self.cfg.get('boss'):self.add_boss_row('','')
-  ttk.Button(bosses,text='＋ ボスを追加',command=lambda:self.add_boss_row('','')).pack(anchor='w',pady=8)
-  # Mouse wheel scrolls whichever list is under the cursor, including entries.
-  def scroll_lists(event):
-   x,y=self.root.winfo_pointerxy()
-   for sc in (boss_canvas,canvas,guide_canvas):
-    if not sc.winfo_ismapped():continue
-    sx,sy=sc.winfo_rootx(),sc.winfo_rooty()
-    if sx<=x<sx+sc.winfo_width() and sy<=y<sy+sc.winfo_height():
-     if event.delta:sc.yview_scroll(-int(event.delta/120) or (-1 if event.delta>0 else 1),'units')
-     return
-  self.root.bind_all('<MouseWheel>',scroll_lists,add='+')
-  ttk.Label(f,text='自動監視: 戦闘・ボス・休憩に試験対応。難易度は手動選択。準備・終了は未対応。',foreground='#f7c879').pack(anchor='w')
-  ttk.Label(f,textvariable=self.event_status,padding=6,style='Muted.TLabel').pack(fill='x',pady=(7,0))
-  ttk.Label(f,textvariable=self.player_status,padding=6,style='Muted.TLabel').pack(fill='x',pady=(4,0))
-  ttk.Label(f,textvariable=self.status,padding=8,style='Section.TLabel').pack(fill='x',pady=(4,0))
+    key=difficulty+'|'+phase
+    self.vars[('music',key)]=tk.StringVar(value=self.cfg.get('music',{}).get(key,''))
+    self.vars[('fallback',key)]=tk.StringVar(value=self.cfg.get('fallback',{}).get(key,''))
+  self.boss_map=dict(self.cfg.get('boss',{}))
+  self.boss_name=tk.StringVar(value=self.BOSS_CHOICES[0]);self.boss_track=tk.StringVar()
+  self.boss_name.trace_add('write',self.boss_name_changed)
+  self._save_after=None;self._loading_editor=False
+  outer=ttk.Frame(self.root,padding=16);outer.pack(fill='both',expand=True)
+  ttk.Label(outer,text='◈  ECLIPTICA',style='Title.TLabel').pack(anchor='w')
+  ttk.Label(outer,text='MUSIC COMPANION   •   v1.4',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
+  self.tabs=ttk.Notebook(outer);self.tabs.pack(fill='both',expand=True)
+  home=ttk.Frame(self.tabs,padding=16);self.tabs.add(home,text='🏠 ホーム')
+  ttk.Label(home,text='ゲームに合わせて音楽を流そう！',style='Heading.TLabel').pack(anchor='center',pady=(6,15))
+  ttk.Button(home,text='▶  音楽をスタート！',style='Action.TButton',command=self.quick_start).pack(fill='x',ipady=8)
+  ttk.Label(home,text='最初だけ、開いたプレイヤーで「再生を有効化」を押してね',style='Muted.TLabel').pack(anchor='center',pady=(9,15))
+  actions=ttk.Frame(home);actions.pack(fill='x',pady=4)
+  ttk.Button(actions,text='■  音楽を止める',command=self.stop_music).pack(side='left',fill='x',expand=True,padx=(0,5))
+  ttk.Button(actions,text='■  自動切替を止める',command=self.stop_watch).pack(side='left',fill='x',expand=True,padx=(5,0))
+  ttk.Label(home,text='いまのゲーム',style='Heading.TLabel').pack(anchor='w',pady=(20,7))
+  row=ttk.Frame(home);row.pack(fill='x')
+  ttk.Label(row,text='難易度').pack(side='left')
+  ttk.Combobox(row,textvariable=self.difficulty,values=self.DIFFICULTIES,state='readonly',width=20).pack(side='left',padx=(8,20))
+  ttk.Label(row,text='場面').pack(side='left')
+  ttk.Combobox(row,textvariable=self.phase_choice,values=self.PHASES,state='readonly',width=12).pack(side='left',padx=8)
+  ttk.Button(home,text='▶ 選んだ場面の曲を試す',command=self.play_selected).pack(anchor='w',pady=(10,0))
+  ttk.Label(home,text='音量',style='Heading.TLabel').pack(anchor='w',pady=(18,3))
+  row=ttk.Frame(home);row.pack(fill='x')
+  ttk.Scale(row,from_=0,to=100,variable=self.volume,orient='horizontal',command=self.on_volume_change).pack(side='left',fill='x',expand=True)
+  ttk.Label(row,textvariable=self.volume,width=5).pack(side='left',padx=8)
+  ttk.Label(home,textvariable=self.event_status,style='Muted.TLabel',wraplength=680).pack(fill='x',pady=(18,4))
+  ttk.Label(home,textvariable=self.player_status,style='Muted.TLabel',wraplength=680).pack(fill='x',pady=4)
+  ttk.Label(home,textvariable=self.status,wraplength=680).pack(fill='x',pady=4)
+  ttk.Button(home,text='♫ プレイヤーを表示',command=self.open_player).pack(anchor='w',pady=(12,0))
+  music=ttk.Frame(self.tabs,padding=16);self.tabs.add(music,text='🎵 曲を設定')
+  ttk.Label(music,text='① 難易度と場面を選ぶ',style='Heading.TLabel').pack(anchor='w',pady=(2,8))
+  rr=ttk.Frame(music);rr.pack(fill='x')
+  self.edit_diff=tk.StringVar(value=self.DIFFICULTIES[0]);self.edit_phase=tk.StringVar(value='戦闘')
+  ttk.Combobox(rr,textvariable=self.edit_diff,values=self.DIFFICULTIES,state='readonly',width=23).pack(side='left',padx=(0,8))
+  ttk.Combobox(rr,textvariable=self.edit_phase,values=self.PHASES,state='readonly',width=16).pack(side='left')
+  ttk.Label(music,text='「戦闘」は道中の音楽です。',style='Muted.TLabel').pack(anchor='w',pady=(6,18))
+  ttk.Label(music,text='② YouTubeのURLを貼る（またはMP3を選ぶ）',style='Heading.TLabel').pack(anchor='w')
+  rr=ttk.Frame(music);rr.pack(fill='x',pady=(9,7))
+  self.music_editor=tk.StringVar()
+  ttk.Entry(rr,textvariable=self.music_editor).pack(side='left',fill='x',expand=True,padx=(0,6))
+  ttk.Button(rr,text='📁 ファイル',command=lambda:self.pick(self.music_editor)).pack(side='left')
+  ttk.Button(music,text='▶ この曲を試す',command=lambda:self.play(self.music_editor.get(),self.fallback_editor.get())).pack(anchor='w',pady=(2,17))
+  ttk.Label(music,text='予備のMP3（YouTubeが再生できないとき用）',style='Heading.TLabel').pack(anchor='w')
+  rr=ttk.Frame(music);rr.pack(fill='x',pady=(8,10))
+  self.fallback_editor=tk.StringVar()
+  ttk.Entry(rr,textvariable=self.fallback_editor).pack(side='left',fill='x',expand=True,padx=(0,6))
+  ttk.Button(rr,text='📁 ファイル',command=lambda:self.pick(self.fallback_editor)).pack(side='left')
+  ttk.Label(music,text='変更した曲は自動で保存されます。',style='Muted.TLabel').pack(anchor='w',pady=(8,0))
+  self.edit_diff.trace_add('write',lambda *_:self.load_music_editor())
+  self.edit_phase.trace_add('write',lambda *_:self.load_music_editor())
+  self.music_editor.trace_add('write',lambda *_:self.update_music_editor())
+  self.fallback_editor.trace_add('write',lambda *_:self.update_music_editor())
+  self.load_music_editor()
+  boss=ttk.Frame(self.tabs,padding=16);self.tabs.add(boss,text='👑 ボスの曲')
+  ttk.Label(boss,text='① ボスを選ぶ',style='Heading.TLabel').pack(anchor='w',pady=(3,8))
+  rr=ttk.Frame(boss);rr.pack(fill='x')
+  ttk.Combobox(rr,textvariable=self.boss_name,values=sorted(set(self.BOSS_CHOICES)|set(self.boss_map),key=str.casefold),state='normal',width=28).pack(side='left',fill='x',expand=True)
+  ttk.Label(boss,text='候補にいないボスは名前を直接入力できます。',style='Muted.TLabel').pack(anchor='w',pady=(6,18))
+  ttk.Label(boss,text='② ボスの曲を登録する',style='Heading.TLabel').pack(anchor='w')
+  rr=ttk.Frame(boss);rr.pack(fill='x',pady=(9,8))
+  ttk.Entry(rr,textvariable=self.boss_track).pack(side='left',fill='x',expand=True,padx=(0,6))
+  ttk.Button(rr,text='📁 ファイル',command=lambda:self.pick(self.boss_track)).pack(side='left')
+  ttk.Button(boss,text='▶ この曲を試す',command=lambda:self.play(self.boss_track.get())).pack(anchor='w',pady=(4,12))
+  ttk.Label(boss,text='ボスごとの曲は自動保存。空欄なら難易度別のボスBGMが流れます。',style='Muted.TLabel',wraplength=680).pack(anchor='w')
+  self.boss_track.trace_add('write',lambda *_:self.update_boss_editor())
+  self.boss_name_changed()
+  advanced=ttk.Frame(self.tabs,padding=16);self.tabs.add(advanced,text='⚙ その他')
+  ttk.Label(advanced,text='ロビーの曲',style='Heading.TLabel').pack(anchor='w')
+  rr=ttk.Frame(advanced);rr.pack(fill='x',pady=(8,15))
+  ttk.Entry(rr,textvariable=self.lobby).pack(side='left',fill='x',expand=True,padx=(0,6))
+  ttk.Button(rr,text='📁 ファイル',command=lambda:self.pick(self.lobby)).pack(side='left')
+  ttk.Label(advanced,text='VRChatのログ',style='Heading.TLabel').pack(anchor='w')
+  rr=ttk.Frame(advanced);rr.pack(fill='x',pady=(8,15))
+  ttk.Entry(rr,textvariable=self.log).pack(side='left',fill='x',expand=True,padx=(0,6))
+  ttk.Button(rr,text='最新を探す',command=self.detect).pack(side='left')
+  ttk.Label(advanced,text='曲の切替時間（秒）',style='Heading.TLabel').pack(anchor='w')
+  ttk.Spinbox(advanced,from_=0,to=15,increment=.5,textvariable=self.fade,width=9).pack(anchor='w',pady=(8,15))
+  ttk.Button(advanced,text='設定を保存',command=self.save).pack(anchor='w',pady=(0,12))
+  rr=ttk.Frame(advanced);rr.pack(fill='x')
+  ttk.Button(rr,text='バックアップ',command=self.export_config).pack(side='left')
+  ttk.Button(rr,text='復元',command=self.import_config).pack(side='left',padx=8)
+  ttk.Button(rr,text='保存先を開く',command=self.open_config_dir).pack(side='left')
+  self.lobby.trace_add('write',lambda *_:self.schedule_save())
+  self.log.trace_add('write',lambda *_:self.schedule_save())
+  self.fade.trace_add('write',lambda *_:self.schedule_save())
+  self.volume.trace_add('write',lambda *_:self.schedule_save())
+ def load_music_editor(self):
+  self._loading_editor=True
+  key=self.edit_diff.get()+'|'+self.edit_phase.get()
+  self.music_editor.set(self.vars[('music',key)].get())
+  self.fallback_editor.set(self.vars[('fallback',key)].get())
+  self._loading_editor=False
+ def update_music_editor(self):
+  if self._loading_editor:return
+  key=self.edit_diff.get()+'|'+self.edit_phase.get()
+  self.vars[('music',key)].set(self.music_editor.get())
+  self.vars[('fallback',key)].set(self.fallback_editor.get())
+  self.schedule_save()
+ def boss_name_changed(self,*_):
+  if not hasattr(self,'boss_track'):return
+  self._loading_editor=True
+  self.boss_track.set(self.boss_map.get(self.boss_name.get().strip(),''))
+  self._loading_editor=False
+ def update_boss_editor(self):
+  if self._loading_editor:return
+  name=self.boss_name.get().strip()
+  if not name:return
+  if self.boss_track.get().strip():self.boss_map[name]=self.boss_track.get().strip()
+  else:self.boss_map.pop(name,None)
+  self.schedule_save()
+ def schedule_save(self):
+  if not hasattr(self,'_save_after'):return
+  if self._save_after is not None:self.root.after_cancel(self._save_after)
+  self._save_after=self.root.after(750,self.autosave)
+ def autosave(self):
+  self._save_after=None
+  self.save(quiet=True)
  BOSS_CHOICES=('Kakarot', 'Nan', 'BuffNoob', 'Pride', 'Steven', 'Amaziah', 'JackedPumpkin', 'QueenVolt', 'M41D', 'Corus', 'CorusPhase2', 'Yuki', 'YukiPhase2', 'Pandora', 'Mephiel', 'MephielPhase2', 'OnyxPilot', 'NeoPilot', 'Gilgamesh', 'GilgameshPhase2', 'GilgameshPhase3', 'GoldenGrouch', 'DarkMouth')
  DIFFICULTIES=('Primal','Penumbra','Antumbra','Umbra','Eclipse','Eye of the Eclipse')
  PHASES=('戦闘','準備','ボス','終了','休憩')
@@ -224,16 +247,21 @@ class App:
   try:os.startfile(str(CFG.parent))
   except Exception as e:messagebox.showerror('開けませんでした',str(e))
  def add_boss_row(self,name,track):
-  r=ttk.Frame(self.boss_rows);r.pack(fill='x',pady=3)
+  # Grid keeps all controls aligned; widths adapt to the available panel.
+  r=ttk.Frame(self.boss_rows)
+  r.pack(fill='x',pady=3)
+  r.columnconfigure(0,weight=0,minsize=190)
+  r.columnconfigure(1,weight=1,minsize=120)
   n=tk.StringVar(value=name);v=tk.StringVar(value=track)
   self.vars[('bossrow',str(id(r)))]=(n,v)
-  ttk.Combobox(r,textvariable=n,values=self.BOSS_CHOICES,width=22,state='normal').pack(side='left',padx=4)
-  ttk.Entry(r,textvariable=v).pack(side='left',fill='x',expand=True,padx=4)
-  ttk.Button(r,text='📁',command=lambda:self.pick(v)).pack(side='left')
-  ttk.Button(r,text='▶',command=lambda:self.play(v.get())).pack(side='left',padx=3)
+  ttk.Combobox(r,textvariable=n,values=self.BOSS_CHOICES,width=21,state='normal').grid(row=0,column=0,sticky='ew',padx=(0,5))
+  ttk.Entry(r,textvariable=v).grid(row=0,column=1,sticky='ew',padx=(0,5))
+  ttk.Button(r,text='📁',width=3,command=lambda:self.pick(v)).grid(row=0,column=2,padx=2)
+  ttk.Button(r,text='▶',width=3,command=lambda:self.play(v.get())).grid(row=0,column=3,padx=2)
   def remove():
-   self.vars.pop(('bossrow',str(id(r))),None);r.destroy()
-  ttk.Button(r,text='×',command=remove).pack(side='left')
+   self.vars.pop(('bossrow',str(id(r))),None)
+   r.destroy()
+  ttk.Button(r,text='×',width=3,command=remove).grid(row=0,column=4,padx=(2,0))
  def play_selected(self):
   key=self.difficulty.get()+'|'+self.phase_choice.get()
   v=self.vars.get(('music',key));track=v.get().strip() if v else ''
@@ -249,8 +277,8 @@ class App:
  def pick(self,v):
   p=filedialog.askopenfilename(filetypes=[('音楽','*.mp3 *.wav *.ogg *.m4a')]);
   if p:v.set(p)
- def save(self):
-  music={};boss={};fallback={}
+ def save(self,quiet=False):
+  music={};boss=dict(self.boss_map);fallback={}
   for (group,k),v in self.vars.items():
    if group=='music' and v.get().strip():music[k]=v.get().strip()
    elif group=='fallback' and v.get().strip():fallback[k]=v.get().strip()
@@ -260,7 +288,7 @@ class App:
   self.cfg['music']=music;self.cfg['boss']=boss;self.cfg['fallback']=fallback;self.cfg['lobby']=self.lobby.get().strip()
   self.cfg.update(log=self.log.get(),fade=float(self.fade.get()),volume=int(self.volume.get()))
   try:
-   tmp=CFG.with_suffix('.tmp');tmp.write_text(json.dumps(self.cfg,ensure_ascii=False,indent=2),'utf-8');tmp.replace(CFG);self.status.set('設定を保存しました')
+   tmp=CFG.with_suffix('.tmp');tmp.write_text(json.dumps(self.cfg,ensure_ascii=False,indent=2),'utf-8');tmp.replace(CFG);self.status.set('設定を保存しました') if not quiet else None
   except Exception as e:messagebox.showerror('保存失敗',str(e))
  def detect(self):
   files=sorted(LOG.glob('output_log_*.txt'),key=lambda p:p.stat().st_mtime,reverse=True)
@@ -302,6 +330,12 @@ class App:
    self.status.set('専用BGMプレイヤーを起動しました（監視開始で増えません）')
   except Exception as e:
    messagebox.showerror('プレイヤー起動失敗',str(e))
+ def quick_start(self):
+  # One-click setup: launch the player and begin log monitoring.
+  # Browser autoplay policy still requires the first unlock click in Edge.
+  self.open_player()
+  self.start()
+  self.status.set('開始しました。最初だけプレイヤーの「再生を有効化」を押してください')
  def play(self,track,fallback=''):
   track=track.strip()
   if not track:return
@@ -407,13 +441,13 @@ class App:
   self.event_status.set('検知イベント: ボス開始 '+name)
   self.phase_choice.set('ボス')
   base=re.sub(r'\s*Phase\d+$','',name,flags=re.I).strip()
-  bosses={n.get().strip().casefold():t.get().strip() for (group,_),(n,t) in self.vars.items() if group=='bossrow' and n.get().strip() and t.get().strip()}
+  bosses={n.casefold():t for n,t in self.boss_map.items() if n.strip() and t.strip()}
   # Prefer phase-specific override, then generic boss, then difficulty boss music.
   track=bosses.get(name.casefold()) or bosses.get(base.casefold())
   if track:self.play(track)
   else:self.play_auto('ボス')
  def close(self):
-  self.stop.set();self.stop_music()
+  self.stop.set();self.save(quiet=True);self.stop_music()
   if self.player_process is not None and self.player_process.poll() is None:
    try:
     # Dedicated Edge profile only; do not terminate unrelated Edge sessions.
