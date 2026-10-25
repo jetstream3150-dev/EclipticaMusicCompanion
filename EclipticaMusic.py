@@ -1,4 +1,4 @@
-import json,os,re,threading,time,webbrowser,mimetypes,sys
+import json,os,re,threading,time,webbrowser,mimetypes,sys,subprocess
 from pathlib import Path
 from urllib.parse import urlparse,parse_qs,unquote
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
@@ -50,7 +50,7 @@ class Handler(BaseHTTPRequestHandler):
   self.send_error(404)
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=json.loads(CFG.read_text('utf-8')) if CFG.exists() else json.loads(json.dumps(DEFAULT));self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};root.title('Ecliptica Music Companion v0.4');root.geometry('800x670');self.status=tk.StringVar(value='待機中');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start)
+  self.root=root;self.port=port;self.cfg=json.loads(CFG.read_text('utf-8')) if CFG.exists() else json.loads(json.dumps(DEFAULT));self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};root.title('Ecliptica Music Companion v0.6');root.geometry('800x670');self.status=tk.StringVar(value='待機中');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(400,self.open_player);root.after(1200,self.auto_start)
  def build(self):
   f=ttk.Frame(self.root,padding=12);f.pack(fill='both',expand=True)
   ttk.Label(f,text='🎵 Ecliptica Music Companion',font=('',16,'bold')).pack(anchor='w')
@@ -76,14 +76,19 @@ class App:
   if files:self.log.set(str(files[0]));self.status.set('最新ログを選択しました')
   else:messagebox.showwarning('ログ未検出','VRChatを起動してから再度お試しください。')
  def open_player(self):
-  if not getattr(self,'player_thread',None) or not self.player_thread.is_alive():
-   self.player_thread=threading.Thread(target=self.run_player,daemon=True);self.player_thread.start()
- def run_player(self):
+  # pywebview must run on its process main thread, while tkinter owns this process main thread.
+  if getattr(self,'player_process',None) is not None and self.player_process.poll() is None:
+   return
+  url=f'http://127.0.0.1:{self.port}/'
+  if getattr(sys,'frozen',False):
+   command=[sys.executable,'--player',url]
+  else:
+   command=[sys.executable,str(Path(__file__).resolve()),'--player',url]
   try:
-   webview.create_window('Ecliptica BGM Player',f'http://127.0.0.1:{self.port}/',width=570,height=400)
-   webview.start(gui='edgechromium',private_mode=False)
+   self.player_process=subprocess.Popen(command,close_fds=True)
+   self.status.set('プレイヤーを起動しました')
   except Exception as e:
-   self.root.after(0,lambda msg=str(e):messagebox.showerror('プレイヤー起動失敗',msg+'\nWebView2 Runtimeが必要な場合があります。'))
+   messagebox.showerror('プレイヤー起動失敗',str(e))
  def play(self,track):
   track=track.strip()
   if not track:return
@@ -124,7 +129,15 @@ class App:
        track=(self.cfg.get('phase',{}).get(phase.group(1),'') if phase else '') or self.cfg.get('boss',{}).get(base,'')
        if track:self.root.after(0,lambda t=track:self.play(t))
   except Exception as e:self.root.after(0,lambda msg=str(e):self.status.set('ログ読み込み失敗: '+msg))
- def close(self):self.stop.set();self.stop_music();self.root.destroy()
+ def close(self):
+  self.stop.set();self.stop_music()
+  if getattr(self,'player_process',None) is not None and self.player_process.poll() is None:
+   self.player_process.terminate()
+  self.root.destroy()
 if __name__=='__main__':
+ if len(sys.argv)>=3 and sys.argv[1]=='--player':
+  webview.create_window('Ecliptica BGM Player',sys.argv[2],width=570,height=400)
+  webview.start(gui='edgechromium',private_mode=False)
+  sys.exit(0)
  server=ThreadingHTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=server.serve_forever,daemon=True).start()
  root=tk.Tk();App(root,server.server_port);root.mainloop();server.shutdown()
