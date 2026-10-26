@@ -16,7 +16,7 @@ lock=threading.Lock()
 allowed_media=set()
 class Handler(BaseHTTPRequestHandler):
  def do_POST(self):
-  if self.path!='/player-status' or self.client_address[0]!='127.0.0.1':
+  if self.path!='/player-status' or self.client_address[0]!='127.0.0.1' or self.headers.get('Host','').split(':')[0] not in ('127.0.0.1','localhost'):
    self.send_error(403);return
   try:
    size=int(self.headers.get('Content-Length','0'))
@@ -60,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
   self.send_error(404)
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.4 β');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.5 β');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def build(self):
   BG='#0b1020';PANEL='#17263d';FIELD='#263650';EDGE='#304363';TEXT='#edf4ff';MUTED='#9cb0cc';ACCENT='#49e7da'
   style=ttk.Style(self.root)
@@ -95,21 +95,22 @@ class App:
     self.vars[('music',key)]=tk.StringVar(value=self.cfg.get('music',{}).get(key,''))
     self.vars[('fallback',key)]=tk.StringVar(value=self.cfg.get('fallback',{}).get(key,''))
   self.boss_map=dict(self.cfg.get('boss',{}))
+  self.boss_fallback_map={k[5:]:v for k,v in self.cfg.get('fallback',{}).items() if k.startswith('boss|')}
   self.boss_name=tk.StringVar(value=self.BOSS_CHOICES[0]);self.boss_track=tk.StringVar()
   self.boss_name.trace_add('write',self.boss_name_changed)
-  self._save_after=None;self._loading_editor=False
+  self._save_after=None;self._loading_editor=False;self._saving=False;self._watch_generation=0
   outer=ttk.Frame(self.root,padding=16);outer.pack(fill='both',expand=True)
   ttk.Label(outer,text='◈  ECLIPTICA',style='Title.TLabel').pack(anchor='w')
-  ttk.Label(outer,text='MUSIC COMPANION   •   v1.4',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
+  ttk.Label(outer,text='MUSIC COMPANION   •   v1.5',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
   self.tabs=ttk.Notebook(outer);self.tabs.pack(fill='both',expand=True)
   home=ttk.Frame(self.tabs,padding=16);self.tabs.add(home,text='🏠 ホーム')
   ttk.Label(home,text='ゲームに合わせて音楽を流そう！',style='Heading.TLabel').pack(anchor='center',pady=(6,15))
   ttk.Button(home,text='▶  音楽をスタート！',style='Action.TButton',command=self.quick_start).pack(fill='x',ipady=8)
-  ttk.Label(home,text='最初だけ、開いたプレイヤーで「再生を有効化」を押してね',style='Muted.TLabel').pack(anchor='center',pady=(9,15))
+  ttk.Label(home,text='① 曲を設定 → ② 音楽をスタート → ③ プレイヤーで再生を有効化',style='Muted.TLabel').pack(anchor='center',pady=(9,15))
   actions=ttk.Frame(home);actions.pack(fill='x',pady=4)
   ttk.Button(actions,text='■  音楽を止める',command=self.stop_music).pack(side='left',fill='x',expand=True,padx=(0,5))
   ttk.Button(actions,text='■  自動切替を止める',command=self.stop_watch).pack(side='left',fill='x',expand=True,padx=(5,0))
-  ttk.Label(home,text='いまのゲーム',style='Heading.TLabel').pack(anchor='w',pady=(20,7))
+  ttk.Label(home,text='いまのゲーム（手動選択・試聴用）',style='Heading.TLabel').pack(anchor='w',pady=(20,7))
   row=ttk.Frame(home);row.pack(fill='x')
   ttk.Label(row,text='難易度').pack(side='left')
   ttk.Combobox(row,textvariable=self.difficulty,values=self.DIFFICULTIES,state='readonly',width=20).pack(side='left',padx=(8,20))
@@ -136,13 +137,16 @@ class App:
   self.music_editor=tk.StringVar()
   ttk.Entry(rr,textvariable=self.music_editor).pack(side='left',fill='x',expand=True,padx=(0,6))
   ttk.Button(rr,text='📁 ファイル',command=lambda:self.pick(self.music_editor)).pack(side='left')
-  ttk.Button(music,text='▶ この曲を試す',command=lambda:self.play(self.music_editor.get(),self.fallback_editor.get())).pack(anchor='w',pady=(2,17))
+  preview=ttk.Frame(music);preview.pack(fill='x',pady=(2,17))
+  ttk.Button(preview,text='▶ この曲を試す',command=lambda:self.play(self.music_editor.get(),self.fallback_editor.get())).pack(side='left')
+  ttk.Button(preview,text='■ 再生を停止',command=self.stop_music).pack(side='left',padx=8)
+  ttk.Button(preview,text='💾 設定を保存',command=self.save).pack(side='left',padx=8)
   ttk.Label(music,text='予備のMP3（YouTubeが再生できないとき用）',style='Heading.TLabel').pack(anchor='w')
   rr=ttk.Frame(music);rr.pack(fill='x',pady=(8,10))
   self.fallback_editor=tk.StringVar()
   ttk.Entry(rr,textvariable=self.fallback_editor).pack(side='left',fill='x',expand=True,padx=(0,6))
   ttk.Button(rr,text='📁 ファイル',command=lambda:self.pick(self.fallback_editor)).pack(side='left')
-  ttk.Label(music,text='変更した曲は自動で保存されます。',style='Muted.TLabel').pack(anchor='w',pady=(8,0))
+  ttk.Label(music,text='自動保存にも対応。右上ではなく、上の「設定を保存」で確認できます。',style='Muted.TLabel').pack(anchor='w',pady=(8,0))
   self.edit_diff.trace_add('write',lambda *_:self.load_music_editor())
   self.edit_phase.trace_add('write',lambda *_:self.load_music_editor())
   self.music_editor.trace_add('write',lambda *_:self.update_music_editor())
@@ -157,16 +161,28 @@ class App:
   rr=ttk.Frame(boss);rr.pack(fill='x',pady=(9,8))
   ttk.Entry(rr,textvariable=self.boss_track).pack(side='left',fill='x',expand=True,padx=(0,6))
   ttk.Button(rr,text='📁 ファイル',command=lambda:self.pick(self.boss_track)).pack(side='left')
-  ttk.Button(boss,text='▶ この曲を試す',command=lambda:self.play(self.boss_track.get())).pack(anchor='w',pady=(4,12))
-  ttk.Label(boss,text='ボスごとの曲は自動保存。空欄なら難易度別のボスBGMが流れます。',style='Muted.TLabel',wraplength=680).pack(anchor='w')
+  ttk.Label(boss,text='③ 予備のMP3（YouTubeが再生できないとき用）',style='Heading.TLabel').pack(anchor='w',pady=(12,8))
+  rr=ttk.Frame(boss);rr.pack(fill='x',pady=(0,12))
+  self.boss_fallback=tk.StringVar()
+  ttk.Entry(rr,textvariable=self.boss_fallback).pack(side='left',fill='x',expand=True,padx=(0,6))
+  ttk.Button(rr,text='📁 MP3を選ぶ',command=lambda:self.pick(self.boss_fallback)).pack(side='left')
+  controls=ttk.Frame(boss);controls.pack(fill='x',pady=(3,12))
+  ttk.Button(controls,text='▶ この曲を試す',command=lambda:self.play(self.boss_track.get(),self.boss_fallback.get())).pack(side='left')
+  ttk.Button(controls,text='■ 再生を停止',command=self.stop_music).pack(side='left',padx=8)
+  ttk.Button(controls,text='💾 設定を保存',command=self.save).pack(side='left',padx=8)
+  ttk.Label(boss,text='自動保存対応。空欄なら難易度別のボスBGMが流れます。',style='Muted.TLabel',wraplength=680).pack(anchor='w')
   self.boss_track.trace_add('write',lambda *_:self.update_boss_editor())
+  self.boss_fallback.trace_add('write',lambda *_:self.update_boss_editor())
   self.boss_name_changed()
   advanced=ttk.Frame(self.tabs,padding=16);self.tabs.add(advanced,text='⚙ その他')
   ttk.Label(advanced,text='ロビーの曲',style='Heading.TLabel').pack(anchor='w')
   rr=ttk.Frame(advanced);rr.pack(fill='x',pady=(8,15))
   ttk.Entry(rr,textvariable=self.lobby).pack(side='left',fill='x',expand=True,padx=(0,6))
   ttk.Button(rr,text='📁 ファイル',command=lambda:self.pick(self.lobby)).pack(side='left')
-  ttk.Label(advanced,text='VRChatのログ',style='Heading.TLabel').pack(anchor='w')
+  lobby_controls=ttk.Frame(advanced);lobby_controls.pack(fill='x',pady=(0,16))
+  ttk.Button(lobby_controls,text='▶ ロビーの曲を試す',command=lambda:self.play(self.lobby.get())).pack(side='left')
+  ttk.Button(lobby_controls,text='■ 再生を停止',command=self.stop_music).pack(side='left',padx=8)
+  ttk.Label(advanced,text='VRChatのログ（通常は自動検出）',style='Heading.TLabel').pack(anchor='w')
   rr=ttk.Frame(advanced);rr.pack(fill='x',pady=(8,15))
   ttk.Entry(rr,textvariable=self.log).pack(side='left',fill='x',expand=True,padx=(0,6))
   ttk.Button(rr,text='最新を探す',command=self.detect).pack(side='left')
@@ -197,6 +213,7 @@ class App:
   if not hasattr(self,'boss_track'):return
   self._loading_editor=True
   self.boss_track.set(self.boss_map.get(self.boss_name.get().strip(),''))
+  self.boss_fallback.set(self.boss_fallback_map.get(self.boss_name.get().strip(),''))
   self._loading_editor=False
  def update_boss_editor(self):
   if self._loading_editor:return
@@ -204,9 +221,11 @@ class App:
   if not name:return
   if self.boss_track.get().strip():self.boss_map[name]=self.boss_track.get().strip()
   else:self.boss_map.pop(name,None)
+  if self.boss_fallback.get().strip():self.boss_fallback_map[name]=self.boss_fallback.get().strip()
+  else:self.boss_fallback_map.pop(name,None)
   self.schedule_save()
  def schedule_save(self):
-  if not hasattr(self,'_save_after'):return
+  if not hasattr(self,'_save_after') or self._saving:return
   if self._save_after is not None:self.root.after_cancel(self._save_after)
   self._save_after=self.root.after(750,self.autosave)
  def autosave(self):
@@ -221,7 +240,7 @@ class App:
    obj=json.loads(CFG.read_text('utf-8'))
    if not isinstance(obj,dict):raise ValueError('設定の形式が正しくありません')
    cfg=json.loads(json.dumps(DEFAULT));cfg.update(obj)
-   if not isinstance(cfg.get('music'),dict) or not isinstance(cfg.get('boss'),dict):raise ValueError('曲設定が正しくありません')
+   if not isinstance(cfg.get('music'),dict) or not isinstance(cfg.get('boss'),dict) or not isinstance(cfg.get('fallback'),dict):raise ValueError('曲設定が正しくありません')
    return cfg
   except Exception:
    try:CFG.rename(CFG.with_name('settings_broken_'+datetime.now().strftime('%Y%m%d_%H%M%S')+'.json'))
@@ -246,22 +265,6 @@ class App:
  def open_config_dir(self):
   try:os.startfile(str(CFG.parent))
   except Exception as e:messagebox.showerror('開けませんでした',str(e))
- def add_boss_row(self,name,track):
-  # Grid keeps all controls aligned; widths adapt to the available panel.
-  r=ttk.Frame(self.boss_rows)
-  r.pack(fill='x',pady=3)
-  r.columnconfigure(0,weight=0,minsize=190)
-  r.columnconfigure(1,weight=1,minsize=120)
-  n=tk.StringVar(value=name);v=tk.StringVar(value=track)
-  self.vars[('bossrow',str(id(r)))]=(n,v)
-  ttk.Combobox(r,textvariable=n,values=self.BOSS_CHOICES,width=21,state='normal').grid(row=0,column=0,sticky='ew',padx=(0,5))
-  ttk.Entry(r,textvariable=v).grid(row=0,column=1,sticky='ew',padx=(0,5))
-  ttk.Button(r,text='📁',width=3,command=lambda:self.pick(v)).grid(row=0,column=2,padx=2)
-  ttk.Button(r,text='▶',width=3,command=lambda:self.play(v.get())).grid(row=0,column=3,padx=2)
-  def remove():
-   self.vars.pop(('bossrow',str(id(r))),None)
-   r.destroy()
-  ttk.Button(r,text='×',width=3,command=remove).grid(row=0,column=4,padx=(2,0))
  def play_selected(self):
   key=self.difficulty.get()+'|'+self.phase_choice.get()
   v=self.vars.get(('music',key));track=v.get().strip() if v else ''
@@ -273,23 +276,30 @@ class App:
   difficulty=self.difficulty.get();key=difficulty+'|'+phase
   v=self.vars.get(('music',key));track=v.get().strip() if v else ''
   if track:self.play(track,self.get_fallback(key))
-  else:self.status.set(f'{difficulty} / {phase} の曲は未設定です')
+  else:self.stop_music();self.status.set(f'{difficulty} / {phase} の曲は未設定のため停止しました')
  def pick(self,v):
   p=filedialog.askopenfilename(filetypes=[('音楽','*.mp3 *.wav *.ogg *.m4a')]);
   if p:v.set(p)
  def save(self,quiet=False):
+  if self._saving:return
+  self._saving=True
+  if self._save_after is not None:
+   self.root.after_cancel(self._save_after);self._save_after=None
+  if hasattr(self,'music_editor') and not getattr(self,'_loading_editor',False):self.update_music_editor()
+  if hasattr(self,'boss_track') and not getattr(self,'_loading_editor',False):self.update_boss_editor()
   music={};boss=dict(self.boss_map);fallback={}
   for (group,k),v in self.vars.items():
    if group=='music' and v.get().strip():music[k]=v.get().strip()
    elif group=='fallback' and v.get().strip():fallback[k]=v.get().strip()
-   elif group=='bossrow':
-    n,t=v;name=n.get().strip()
-    if name and t.get().strip():boss[name]=t.get().strip()
+  fallback.update({'boss|'+name:path for name,path in self.boss_fallback_map.items() if path.strip()})
   self.cfg['music']=music;self.cfg['boss']=boss;self.cfg['fallback']=fallback;self.cfg['lobby']=self.lobby.get().strip()
-  self.cfg.update(log=self.log.get(),fade=float(self.fade.get()),volume=int(self.volume.get()))
+  try:fade=max(0,min(15,float(self.fade.get())))
+  except (ValueError,tk.TclError):fade=2.0
+  self.cfg.update(log=self.log.get(),fade=fade,volume=int(self.volume.get()))
   try:
    tmp=CFG.with_suffix('.tmp');tmp.write_text(json.dumps(self.cfg,ensure_ascii=False,indent=2),'utf-8');tmp.replace(CFG);self.status.set('設定を保存しました') if not quiet else None
   except Exception as e:messagebox.showerror('保存失敗',str(e))
+  finally:self._saving=False
  def detect(self):
   files=sorted(LOG.glob('output_log_*.txt'),key=lambda p:p.stat().st_mtime,reverse=True)
   if files:self.log.set(str(files[0]));self.status.set('最新ログを選択しました')
@@ -304,7 +314,7 @@ class App:
   if seen and time.time()-seen<5:self.player_status.set('プレイヤー: '+msg)
   elif self.player_launched:self.player_status.set('プレイヤー: 接続待ち／ウィンドウを確認してください')
   else:self.player_status.set('プレイヤー: 未起動')
-  self.root.after(1200,self.refresh_player_status)
+  if self.root.winfo_exists():self.root.after(1200,self.refresh_player_status)
  def open_player(self):
   # Only a deliberate click may relaunch a player. Never launch on watch start.
   # A dedicated Edge profile prevents reuse of the user's normal Edge windows.
@@ -335,19 +345,23 @@ class App:
   # Browser autoplay policy still requires the first unlock click in Edge.
   self.open_player()
   self.start()
-  self.status.set('開始しました。最初だけプレイヤーの「再生を有効化」を押してください')
+  if self.worker and self.worker.is_alive():self.status.set('監視中です。最初だけプレイヤーの「再生を有効化」を押してください')
  def play(self,track,fallback=''):
   track=track.strip()
   if not track:return
-  if not track.startswith(('https://youtube.com/','https://www.youtube.com/','https://music.youtube.com/','https://youtu.be/')) and not Path(track).is_file():self.status.set('URLか存在する音楽ファイルを設定してください');return
+  is_youtube=bool(re.match(r'^https://(www\.|m\.|music\.)?youtube\.com/(watch\?|shorts/|embed/)|^https://youtu\.be/',track,re.I))
+  if not is_youtube and not Path(track).is_file():self.status.set('YouTubeのURLか存在する音楽ファイルを設定してください');return
   if Path(track).is_file():
    with lock:allowed_media.add(str(Path(track).resolve()))
-  if fallback and Path(fallback).is_file():
+  if fallback and Path(fallback).is_file() and Path(fallback).suffix.lower() in ('.mp3','.wav','.ogg','.m4a'):
    with lock:allowed_media.add(str(Path(fallback).resolve()))
-  with lock:state.update(seq=state['seq']+1,track=track,fade=max(0,float(self.fade.get())),volume=max(0,min(100,int(self.volume.get())))/100,stop=False,fallback=fallback)
+  try:fade=max(0,min(15,float(self.fade.get())))
+  except (ValueError,tk.TclError):fade=2.0
+  with lock:state.update(seq=state['seq']+1,track=track,fade=fade,volume=max(0,min(100,int(self.volume.get())))/100,stop=False,fallback=fallback)
   self.status.set('切替指示: '+track[:65])
  def stop_music(self):
   with lock:state.update(seq=state['seq']+1,stop=True)
+  self.status.set('再生停止を指示しました')
  def auto_start(self):
   if self.cfg.get('auto',True):self.start()
  def start(self):
@@ -360,11 +374,13 @@ class App:
    self.status.set('VRChatログが見つかりません。VRChatを起動してください');return
   self.log.set(str(p))
   self.stop.set()
+  self._watch_generation+=1
   self.stop=threading.Event();self.round=0;self.boss='';self.laststage=''
   self.worker=threading.Thread(target=self.watch,args=(p,self.stop),daemon=True)
   self.worker.start();self.status.set('監視中: '+p.name)
   # Recover the latest game state from this session's recent log.
-  self.root.after(250,lambda path=p:self.resume_from_log(path))
+  generation=self._watch_generation
+  self.root.after(250,lambda path=p,g=generation:self.resume_from_log(path) if g==self._watch_generation and not self.stop.is_set() else None)
   self.event_status.set('検知イベント: 待機中（次のゲームイベントから再生）')
  def resume_from_log(self,p):
   # The most recent ECLIPTICA state in this VRChat session is a best-effort hint.
@@ -389,6 +405,7 @@ class App:
    else:self.status.set('現在の場面をログから特定できません。手動で曲を選択してください')
   except (OSError,UnicodeError) as e:self.status.set('途中参加の状態確認に失敗: '+str(e))
  def stop_watch(self):
+  self._watch_generation+=1
   self.stop.set();self.status.set('監視停止')
  def watch(self,p,signal):
   # Start at EOF: old events must not play when the app starts mid-game.
@@ -432,7 +449,7 @@ class App:
   if phase=='ロビー':
    track=self.lobby.get().strip()
    if track:self.play(track)
-   else:self.status.set('ロビーBGMは未設定です')
+   else:self.stop_music();self.status.set('ロビーBGMは未設定のため、前の曲を停止しました')
   elif phase is None:self.stop_music()
   else:
    self.phase_choice.set(phase)
@@ -444,7 +461,10 @@ class App:
   bosses={n.casefold():t for n,t in self.boss_map.items() if n.strip() and t.strip()}
   # Prefer phase-specific override, then generic boss, then difficulty boss music.
   track=bosses.get(name.casefold()) or bosses.get(base.casefold())
-  if track:self.play(track)
+  if track:
+   fallbacks={n.casefold():v for n,v in self.boss_fallback_map.items() if v.strip()}
+   fallback=fallbacks.get(name.casefold()) or fallbacks.get(base.casefold(),'')
+   self.play(track,fallback)
   else:self.play_auto('ボス')
  def close(self):
   self.stop.set();self.save(quiet=True);self.stop_music()
