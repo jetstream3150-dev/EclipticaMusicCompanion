@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ecliptica Music Companion — v1.8</title>
+<title>Ecliptica Music Companion — v1.8.1 Lite</title>
 <style>
 :root{color-scheme:dark;--bg:#080d13;--panel:#111b25;--panel2:#172431;--line:#263743;--text:#edf7f8;--muted:#91a7b4;--a:#5bf2e1;--a2:#73b6ff;--red:#ff8e9b}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,'Segoe UI','Yu Gothic UI',Meiryo,sans-serif;color:var(--text);background:var(--bg)}
@@ -33,7 +33,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
 <body>
 <div class="app">
 <nav>
-  <div class="brand"><div class="mark">ECLIPTICA</div><div class="sub">MUSIC COMPANION</div><div class="version">UNIFIED EDITION · v1.8 β</div></div>
+  <div class="brand"><div class="mark">ECLIPTICA</div><div class="sub">MUSIC COMPANION</div><div class="version">UNIFIED EDITION · v1.8.1 β Lite</div></div>
   <button class="navitem active" data-tab="home"><span class="num">01</span>⌂　ホーム</button>
   <button class="navitem" data-tab="music"><span class="num">02</span>♫　曲を設定</button>
   <button class="navitem" data-tab="boss"><span class="num">03</span>♛　ボスの曲</button>
@@ -52,7 +52,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
   <header><div class="eyebrow">02 / CUSTOMIZE</div><h1 class="heading">曲を設定する。</h1><div class="lead">難易度・場面ごとに、YouTubeのURLかローカルの音声ファイルを指定。</div></header>
   <div class="card"><div class="cardh">01　難易度と場面</div><div class="twocol"><div><label for="music-diff">難易度</label><select id="music-diff"></select></div><div><label for="music-phase">場面</label><select id="music-phase"></select></div></div><div class="muted" style="margin-top:12px">「戦闘」は道中の音楽です。</div></div>
   <div class="card"><div class="cardh">02　音源を指定</div><label for="music-track">YouTube URL または音楽ファイル</label><div class="row wide"><input id="music-track" type="text" placeholder="https://www.youtube.com/watch?v=..." spellcheck="false"><button class="btn small" data-pick="music-track">ファイル</button></div><label for="music-fallback">予備MP3（YouTubeが再生できないとき）</label><div class="row wide"><input id="music-fallback" type="text" placeholder="必要な場合のみ" spellcheck="false"><button class="btn small" data-pick="music-fallback">ファイル</button></div><div class="btns" style="margin-top:21px"><button class="btn primary" id="music-save">✓ 設定を保存</button><button class="btn" id="music-preview">▶ この曲を試す</button><button class="btn danger" data-action="stop">■ 停止</button></div><p class="muted">入力後は自動保存されます。</p></div>
-  <div class="card download"><div class="cardh">許可された音源をMP3として保存</div><label for="music-url">YouTube URL</label><input type="url" id="music-url" placeholder="許可を得た音源のURL"><label class="check"><input type="checkbox" id="music-authorized">自分が権利を持つ、またはダウンロードを許可された音源です。</label><button class="btn small" id="music-download">↓ MP3に変換して登録</button><p class="muted">変換後はアプリの設定フォルダに保存します。</p></div>
+  <div class="card download"><div class="cardh">音源を登録する（Lite版）</div><p class="muted">この版ではMP3へのダウンロード・変換を停止しています。上の「ファイル」ボタンで手持ちの音源を登録できます。YouTube URLの再生は引き続き使えます。</p></div>
  </section>
  <section class="panel" id="boss">
   <header><div class="eyebrow">03 / BOSS-SPECIFIC</div><h1 class="heading">ボスの曲を。</h1><div class="lead">遭遇するボスに合わせて、その戦いだけのBGMを。</div></header>
@@ -64,7 +64,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
    <p class="muted">ボス名はVRChatログの名前と一致させてください。追加した名前にも専用BGMを設定できます。</p>
   </div>
   <div class="card"><div class="cardh">02　専用BGM</div><label for="boss-track">YouTube URL または音楽ファイル</label><div class="row wide"><input type="text" id="boss-track" placeholder="ボス専用の音楽" spellcheck="false"><button class="btn small" data-pick="boss-track">ファイル</button></div><label for="boss-fallback">予備MP3</label><div class="row wide"><input type="text" id="boss-fallback" placeholder="必要な場合のみ" spellcheck="false"><button class="btn small" data-pick="boss-fallback">ファイル</button></div><div class="btns" style="margin-top:21px"><button class="btn primary" id="boss-save">✓ 設定を保存</button><button class="btn" id="boss-preview">▶ この曲を試す</button><button class="btn danger" data-action="stop">■ 停止</button></div><p class="muted">ボス固有の音楽が未設定の場合、難易度別のボスBGMが使用されます。</p></div>
-  <div class="card download"><div class="cardh">許可された音源をMP3として保存</div><label for="boss-url">YouTube URL</label><input type="url" id="boss-url" placeholder="許可を得た音源のURL"><label class="check"><input type="checkbox" id="boss-authorized">この音源をダウンロード・変換する許可を得ています。</label><button class="btn small" id="boss-download">↓ MP3に変換して登録</button></div>
+  <div class="card download"><div class="cardh">音源を登録する（Lite版）</div><p class="muted">この版ではMP3へのダウンロード・変換を停止しています。上の「ファイル」ボタンで手持ちの音源を登録できます。YouTube URLの再生は引き続き使えます。</p></div>
  </section>
  <section class="panel" id="hud">
   <header><div class="eyebrow">04 / BATTLE TELEMETRY</div><h1 class="heading">バトルHUD。</h1><div class="lead">ボス名・DPS・ダメージ・ターゲット推定をゲーム画面の上に表示。<br>自分が狙われたと推定したとき、音でも通知します。</div></header>
@@ -91,7 +91,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
   <div class="card"><div class="cardh">ロビーの音楽</div><label for="lobby-track">YouTube URL または音楽ファイル</label><div class="row wide"><input type="text" id="lobby-track" placeholder="ロビーで再生したい曲"><button class="btn small" data-pick="lobby-track">ファイル</button></div><div class="btns" style="margin-top:17px"><button class="btn primary" id="lobby-save">✓ 保存</button><button class="btn" id="lobby-preview">▶ ロビーの曲を試す</button><button class="btn danger" data-action="stop">■ 停止</button></div></div>
   <div class="card"><div class="cardh">詳細設定</div><label for="log-path">VRChatのログファイル</label><div class="row wide"><input type="text" id="log-path" placeholder="通常は自動検出"><button class="btn small" id="detect-log">最新を探す</button></div><div class="twocol"><div><label for="fade-secs">曲の切替時間（秒）</label><input type="number" min="0" max="15" step="0.5" id="fade-secs" value="2"></div></div><div class="btns" style="margin-top:18px"><button class="btn primary" id="other-save">✓ 設定を保存</button></div></div>
   <div class="card"><div class="cardh">バックアップと復元</div><div class="btns"><button class="btn" data-action="backup">バックアップ</button><button class="btn" data-action="restore">復元</button><button class="btn" data-action="open_folder">保存先を開く</button></div></div>
-  <div class="card download"><div class="cardh">許可されたロビー音源をMP3保存</div><label for="lobby-url">YouTube URL</label><input type="url" id="lobby-url" placeholder="許可を得た音源のURL"><label class="check"><input type="checkbox" id="lobby-authorized">ダウンロード・変換の利用許可を確認しました。</label><button class="btn small" id="lobby-download">↓ MP3に変換して登録</button></div>
+  <div class="card download"><div class="cardh">音源を登録する（Lite版）</div><p class="muted">この版ではMP3へのダウンロード・変換を停止しています。上の「ファイル」ボタンで手持ちの音源を登録できます。YouTube URLの再生は引き続き使えます。</p></div>
  </section>
 </main>
 <aside>
@@ -136,7 +136,7 @@ async function loadConfig(first=false){const x=await request('/api/config');cons
  $('fade-secs').value=x.fade;$('master-volume').value=x.volume;$('volume-label').textContent=x.volume;
  $('log-path').value=x.log;$('lobby-track').value=x.lobby;
  }else{
-  // Live downloads should update the track editor only if it is not being typed into.
+  // Keep saved track inputs synchronized while respecting active edits.
   if(document.activeElement!==$('lobby-track'))$('lobby-track').value=x.lobby;
   if(document.activeElement!==$('log-path'))$('log-path').value=x.log;
   if(document.activeElement!==$('music-track')&&document.activeElement!==$('music-fallback'))fillMusic();
@@ -176,10 +176,6 @@ $('start').addEventListener('click',()=>{unlock();safe('start')});
 $('unlock').addEventListener('click',()=>{unlock();toast('再生を有効化しました')});
 $('master-volume').addEventListener('input',e=>{$('volume-label').textContent=e.target.value;safe('volume',{volume:parseInt(e.target.value)},true)});
 $('quit').addEventListener('click',()=>{if(confirm('Ecliptica Music Companionを終了しますか？'))safe('quit')});
-for(const kind of ['music','boss','lobby'])$(kind+'-download').addEventListener('click',async()=>{
- const key=kind==='music'?currentMusicKey:kind==='boss'?$('boss-name').value.trim():'';
- const r=await safe('download',{kind,key,url:$(kind+'-url').value,authorized:$(kind+'-authorized').checked});
- if(r)toast('音源を確認しています。完了すると自動で登録されます。')});
 let previousStatus='';async function poll(){try{
  const v=await request('/api/view');$('app-status').textContent=v.status;$('event-info').textContent=v.event;$('playback-info').textContent=v.player;
  $('engine-label').textContent=v.player.includes('未起動')?'待機中':'プレイヤー接続中';

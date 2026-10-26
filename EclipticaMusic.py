@@ -178,7 +178,7 @@ class BattleHUD(tk.Toplevel):
 
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8 β');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.build();self.root.after(350,self.update_hud_loop);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.1 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.build();self.root.after(350,self.update_hud_loop);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def _overlay_options(self):
   defaults={'show':False,'name':'','alert':True,'other_alerts':False,'volume':65,'seconds':10,'opacity':92}
   saved=self.cfg.get('overlay',{})
@@ -256,7 +256,7 @@ class App:
   self._save_after=None;self._loading_editor=False;self._saving=False;self._watch_generation=0
   outer=ttk.Frame(self.root,padding=16);outer.pack(fill='both',expand=True)
   ttk.Label(outer,text='◈  ECLIPTICA',style='Title.TLabel').pack(anchor='w')
-  ttk.Label(outer,text='MUSIC COMPANION   •   v1.7',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
+  ttk.Label(outer,text='MUSIC COMPANION   •   v1.8.1 Lite',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
   self.tabs=ttk.Notebook(outer);self.tabs.pack(fill='both',expand=True)
   # A shared feedback bar remains visible regardless of the selected tab.
   # The message is derived from the existing status variable so every existing
@@ -389,71 +389,10 @@ class App:
   self.feedback_icon.configure(text='✓',fg='#49e7da')
 
  def add_mp3_import_panel(self,parent,target_var):
-  section=ttk.LabelFrame(parent,text='🎵 許可されたYouTube音源をMP3として保存',padding=10)
+  # Lite distribution intentionally has no network downloader/FFmpeg executable.
+  section=ttk.LabelFrame(parent,text='音楽ファイルの登録（セキュリティ点検版）',padding=10)
   section.pack(fill='x',pady=(20,8))
-  ttk.Label(section,text='自分が権利を持つ、またはダウンロードの許可を得た動画のみ使用してください。',style='Muted.TLabel',wraplength=700).pack(anchor='w')
-  url=tk.StringVar()
-  row=ttk.Frame(section);row.pack(fill='x',pady=(8,5))
-  ttk.Entry(row,textvariable=url).pack(side='left',fill='x',expand=True,padx=(0,6))
-  ttk.Button(row,text='URLを貼り付け',command=lambda:self.paste_url(url)).pack(side='left')
-  authorized=tk.BooleanVar(value=False)
-  ttk.Checkbutton(section,text='この動画のダウンロード・MP3変換が許可されていることを確認しました',variable=authorized).pack(anchor='w',pady=5)
-  status=tk.StringVar(value='保存先：アプリの設定フォルダ内の DownloadedMusic')
-  ttk.Label(section,textvariable=status,style='Muted.TLabel',wraplength=700).pack(fill='x',pady=(3,5))
-  btn=ttk.Button(section,text='⬇ MP3に保存して、この曲に登録')
-  btn.configure(command=lambda:self.download_authorized_mp3(url.get(),authorized.get(),target_var,status,btn))
-  btn.pack(anchor='w')
- def paste_url(self,var):
-  try:var.set(self.root.clipboard_get().strip())
-  except tk.TclError:self.status.set('クリップボードにテキストがありません')
-  else:self.status.set('URLを貼り付けました')
- def download_authorized_mp3(self,url,authorized,target_var,status,button):
-  url=url.strip()
-  if not authorized:
-   messagebox.showwarning('利用許可を確認','ダウンロードが許可された音源であることを確認し、チェックしてください。');return
-  parsed=urlparse(url)
-  host=(parsed.hostname or '').lower()
-  if parsed.scheme!='https' or host not in ('youtube.com','www.youtube.com','m.youtube.com','music.youtube.com','youtu.be'):
-   messagebox.showwarning('URLが正しくありません','YouTubeのhttps://で始まるURLを貼り付けてください。');return
-  try:
-   import yt_dlp,imageio_ffmpeg
-  except ImportError:
-   messagebox.showerror('必要な機能がありません','MP3変換用ライブラリが見つかりません。v1.6のGitHub Actionsで再ビルドしてください。');return
-  button.configure(state='disabled');status.set('動画を確認しています…')
-  destination=CFG.parent/'DownloadedMusic'
-  destination.mkdir(parents=True,exist_ok=True)
-  def worker():
-   try:
-    ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
-    if not Path(ffmpeg).is_file():raise RuntimeError('FFmpegが見つかりません')
-    opts={'format':'bestaudio/best','noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':20,'retries':2,
-          'outtmpl':str(destination/'%(id)s.%(ext)s'),
-          'ffmpeg_location':ffmpeg,
-          'postprocessors':[{'key':'FFmpegExtractAudio','preferredcodec':'mp3','preferredquality':'192'}]}
-    with yt_dlp.YoutubeDL(opts) as ydl:
-     info=ydl.extract_info(url,download=False)
-     if not info or info.get('_type')=='playlist':raise ValueError('単一の動画URLを指定してください')
-     if (info.get('duration') or 0)>7200:raise ValueError('2時間を超える動画は対象外です')
-     video_id=str(info.get('id',''))
-     if not re.fullmatch(r'[a-zA-Z0-9_-]{6,32}',video_id):raise ValueError('動画IDを取得できません')
-     mp3=destination/(video_id+'.mp3')
-     if not mp3.is_file():
-      self.root.after(0,lambda:status.set('MP3に変換しています…'))
-      ydl.download([url])
-     if not mp3.is_file() or mp3.stat().st_size<1000:raise RuntimeError('MP3ファイルの作成に失敗しました')
-    def done():
-     target_var().set(str(mp3));self.save(quiet=True)
-     status.set('保存・曲の登録が完了しました: '+mp3.name)
-     self.status.set('MP3を登録しました。試聴ボタンで確認できます')
-     button.configure(state='normal')
-    self.root.after(0,done)
-   except Exception as exc:
-    msg=str(exc).splitlines()[0][:220]
-    def failed():
-     status.set('変換できませんでした: '+msg)
-     button.configure(state='normal')
-    self.root.after(0,failed)
-  threading.Thread(target=worker,daemon=True).start()
+  ttk.Label(section,text='MP3へのダウンロード・変換はこの配布版では無効です。お手持ちの音声ファイルは上の「ファイル」ボタンから登録できます。YouTube URLの再生は引き続き可能です。',style='Muted.TLabel',wraplength=700).pack(anchor='w')
  def load_music_editor(self):
   self._loading_editor=True
   key=self.edit_diff.get()+'|'+self.edit_phase.get()
@@ -874,55 +813,10 @@ class App:
   if action=='backup':self.export_config();return self.status.get()
   if action=='restore':self.import_config();return self.status.get()
   if action=='open_folder':self.open_config_dir();return self.status.get()
-  if action=='download':
-   url=val('url');kind=val('kind',30);key=val('key',200)
-   if not d.get('authorized'):raise ValueError('ダウンロードの利用許可を確認してください')
-   parsed=urlparse(url)
-   if parsed.scheme!='https' or (parsed.hostname or '').lower() not in ('youtube.com','www.youtube.com','m.youtube.com','music.youtube.com','youtu.be'):
-    raise ValueError('YouTubeのHTTPS URLを指定してください')
-   if kind=='music':
-    if '|' not in key:raise ValueError('難易度と場面を指定してください')
-    diff,phase=key.split('|',1)
-    if diff not in self.DIFFICULTIES or phase not in self.PHASES:raise ValueError('難易度・場面が不正です')
-   elif kind=='boss':
-    if not key.strip():raise ValueError('ボス名が必要です')
-   elif kind!='lobby':raise ValueError('ダウンロード先が不正です')
-   self.download_web_mp3(url,kind,key)
-   return '音源の確認・変換を開始しました'
+  if action=='download':raise ValueError('この安全点検版ではMP3へのダウンロード・変換は無効です。音楽ファイルの登録またはYouTube URLでの再生をご利用ください')
   if action=='quit':
    self.root.after(200,self.close);return '終了します'
   raise ValueError('未対応の操作です: '+action)
- def download_web_mp3(self,url,kind,key):
-  try:import yt_dlp,imageio_ffmpeg
-  except ImportError:raise RuntimeError('MP3変換の必要ライブラリが見つかりません。GitHub Actionsで再ビルドしてください')
-  destination=CFG.parent/'DownloadedMusic';destination.mkdir(parents=True,exist_ok=True)
-  self.status.set('MP3変換を準備しています…')
-  def worker():
-   try:
-    ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
-    opts={'format':'bestaudio/best','noplaylist':True,'quiet':True,'no_warnings':True,
-      'socket_timeout':20,'retries':2,'outtmpl':str(destination/'%(id)s.%(ext)s'),
-      'ffmpeg_location':ffmpeg,'postprocessors':[{'key':'FFmpegExtractAudio','preferredcodec':'mp3','preferredquality':'192'}]}
-    with yt_dlp.YoutubeDL(opts) as ydl:
-     info=ydl.extract_info(url,download=False)
-     if not info or info.get('_type')=='playlist':raise ValueError('単一動画のみ指定してください')
-     if (info.get('duration') or 0)>7200:raise ValueError('2時間以上の音源には対応していません')
-     vid=str(info.get('id',''))
-     if not re.fullmatch(r'[a-zA-Z0-9_-]{6,32}',vid):raise ValueError('動画IDを取得できませんでした')
-     mp3=destination/(vid+'.mp3')
-     if not mp3.is_file():ydl.download([url])
-     if not mp3.is_file() or mp3.stat().st_size<1000:raise RuntimeError('MP3の生成に失敗しました')
-    def done():
-     if kind=='music':self.vars[('music',key)].set(str(mp3))
-     elif kind=='boss':self.boss_map[key]=str(mp3)
-     else:self.lobby.set(str(mp3))
-     self.save(quiet=True);self.revision+=1
-     self.status.set('MP3の変換と登録が完了しました: '+mp3.name)
-    self.root.after(0,done)
-   except Exception as exc:
-    msg=str(exc).splitlines()[0][:180]
-    self.root.after(0,lambda m=msg:self.status.set('MP3変換失敗: '+m))
-  threading.Thread(target=worker,daemon=True).start()
  def open_unified(self):
   # The complete interface and playback engine share ONE dedicated Edge app window.
   self.unified=True
