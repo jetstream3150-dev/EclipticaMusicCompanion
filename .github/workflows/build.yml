@@ -1,4 +1,4 @@
-name: Build Windows App (v1.8.2 Auto Name Lite Audit)
+name: Build Windows App (v1.8.2 Tcl Tk Startup Fix)
 
 on:
   workflow_dispatch:
@@ -36,16 +36,63 @@ jobs:
           python -m compileall -q EclipticaMusic.py combat_meter.py vrchat_identity.py tools
           python test_v18.py
           python tools/test_lite.py
+          # tools/test_identity.py must run as a module for imports to resolve.
           python -m tools.test_identity
 
-      - name: Build minimal Windows folder (no downloader/FFmpeg)
-        shell: cmd
-        run: >-
-          python -m PyInstaller --noconfirm --clean --onedir --windowed
-          --noupx --name EclipticaMusicCompanion
-          --exclude-module yt_dlp --exclude-module imageio_ffmpeg
-          --add-data "player.html;." --add-data "unified.html;."
-          --add-data "engine.js;." EclipticaMusic.py
+      - name: Build Windows folder with complete Tcl Tk runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # tkinter's standard PyInstaller hook usually handles these directories,
+          # but we add both explicitly to prevent missing init.tcl / tk.tcl.
+          $tclDir = (& python -c "import tkinter as tk; print(tk.Tcl().eval('info library'))").Trim()
+          $tkVersion = (& python -c "import tkinter as tk; print(tk.TkVersion)").Trim()
+          $tkDir = Join-Path (Split-Path -Parent $tclDir) ("tk" + $tkVersion)
+          if (-not (Test-Path (Join-Path $tclDir 'init.tcl'))) {
+            throw "Cannot find Tcl init.tcl in $tclDir"
+          }
+          if (-not (Test-Path (Join-Path $tkDir 'tk.tcl'))) {
+            throw "Cannot find Tk tk.tcl in $tkDir"
+          }
+          Write-Host "Bundling Tcl from: $tclDir"
+          Write-Host "Bundling Tk  from: $tkDir"
+          $pyiArgs = @(
+            '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir', '--windowed',
+            '--noupx', '--name', 'EclipticaMusicCompanion',
+            '--exclude-module', 'yt_dlp', '--exclude-module', 'imageio_ffmpeg',
+            '--add-data', 'player.html;.', '--add-data', 'unified.html;.',
+            '--add-data', 'engine.js;.',
+            '--add-data', ($tclDir + ';_tcl_data'),
+            '--add-data', ($tkDir + ';_tk_data'),
+            'EclipticaMusic.py'
+          )
+          & python @pyiArgs
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller exited with $LASTEXITCODE" }
+
+      - name: Validate bundled Tcl Tk and run actual EXE smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'dist/EclipticaMusicCompanion'
+          $assets = @(
+            '_internal/_tcl_data/init.tcl',
+            '_internal/_tk_data/tk.tcl',
+            '_internal/_tkinter.pyd',
+            '_internal/tcl86t.dll',
+            '_internal/tk86t.dll'
+          )
+          foreach ($asset in $assets) {
+            $path = Join-Path $root $asset
+            if (-not (Test-Path $path)) { throw "Missing Tcl/Tk runtime asset: $path" }
+          }
+          # A headless option in EclipticaMusic.py initializes Tcl in the frozen EXE.
+          # It does not start the browser, the HUD, or the background server.
+          $exe = (Resolve-Path (Join-Path $root 'EclipticaMusicCompanion.exe')).Path
+          $probe = Start-Process -FilePath $exe -ArgumentList '--tk-self-test' -Wait -PassThru
+          if ($probe.ExitCode -ne 0) {
+            throw "Frozen Tcl/Tk startup smoke test failed: exit code $($probe.ExitCode)"
+          }
+          Write-Host 'PASS: bundled Tcl/Tk libraries and frozen executable startup'
 
       - name: Verify release contents and write SHA256 manifest
         run: python tools/verify_release.py dist/EclipticaMusicCompanion
@@ -57,6 +104,6 @@ jobs:
       - name: Upload audited-lite distribution
         uses: actions/upload-artifact@v4
         with:
-          name: EclipticaMusicCompanion-Windows-v1.8.2-AutoName-Lite
+          name: EclipticaMusicCompanion-Windows-v1.8.2-TclTk-Fix
           path: dist/EclipticaMusicCompanion/
           if-no-files-found: error
