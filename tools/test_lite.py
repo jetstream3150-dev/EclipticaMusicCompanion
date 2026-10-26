@@ -16,4 +16,6 @@ assert '--collect-all' not in yaml
 assert '--noupx' in yaml
 assert 'verify_release.py' in yaml
 assert 'combat_meter.py' in yaml
+assert 'vrchat_identity.py' in yaml
+assert 'test_identity.py' in yaml
 print('Lite static checks PASS')

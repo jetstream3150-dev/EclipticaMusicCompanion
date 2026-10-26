@@ -6,12 +6,13 @@ import tkinter as tk
 from tkinter import ttk,filedialog,messagebox
 from datetime import datetime
 from combat_meter import CombatMeter
+from vrchat_identity import detect_identity
 BASE=Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 USER_DIR=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else BASE
 CFG=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'EclipticaMusicCompanion'/'settings.json'
 CFG.parent.mkdir(parents=True,exist_ok=True)
 LOG=Path(os.environ.get('USERPROFILE',str(Path.home())))/'AppData/LocalLow/VRChat/VRChat'
-DEFAULT={'round':{},'waiting':{},'phase':{},'boss':{},'music':{},'fade':2.0,'volume':80,'log':'','auto':False,'fallback':{},'lobby':'','overlay':{'show':False,'name':'','alert':True,'other_alerts':False,'volume':65,'seconds':10,'opacity':92},'discovered_bosses':[]}
+DEFAULT={'round':{},'waiting':{},'phase':{},'boss':{},'music':{},'fade':2.0,'volume':80,'log':'','auto':False,'fallback':{},'lobby':'','overlay':{'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'volume':65,'seconds':10,'opacity':92},'discovered_bosses':[]}
 state={'seq':0,'track':'','fade':2,'volume':.8,'stop':False,'player_status':'プレイヤー未接続','player_seen':0,'volume_seq':0,'fallback':''}
 lock=threading.Lock()
 allowed_media=set()
@@ -178,11 +179,16 @@ class BattleHUD(tk.Toplevel):
 
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.1 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.build();self.root.after(350,self.update_hud_loop);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.identity_status='自動取得の確認待ち';self.identity_log='';self.build();self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def _overlay_options(self):
-  defaults={'show':False,'name':'','alert':True,'other_alerts':False,'volume':65,'seconds':10,'opacity':92}
+  defaults={'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'volume':65,'seconds':10,'opacity':92}
   saved=self.cfg.get('overlay',{})
-  if isinstance(saved,dict):defaults.update({k:v for k,v in saved.items() if k in defaults})
+  if isinstance(saved,dict):
+   defaults.update({k:v for k,v in saved.items() if k in defaults})
+   # An existing user's manually entered name must remain a manual override.
+   if 'auto_name' not in saved and str(saved.get('name','')).strip():
+    defaults['auto_name']=False
+  defaults['auto_name']=bool(defaults['auto_name'])
   try:defaults['seconds']=max(1,min(15,int(defaults['seconds'])))
   except (ValueError,TypeError):defaults['seconds']=10
   try:defaults['volume']=max(0,min(100,int(defaults['volume'])))
@@ -191,6 +197,25 @@ class App:
   except (ValueError,TypeError):defaults['opacity']=92
   defaults['name']=str(defaults['name'])[:90]
   return defaults
+ def refresh_identity(self,force=False):
+  """Check a local VRChat login event; never assume someone else's joined name."""
+  if not self.overlay_cfg.get('auto_name',True) and not force:
+   self.identity_status='手入力モード';return self.identity_status
+  result=detect_identity(LOG)
+  self.identity_status=result.message
+  self.identity_log=result.log_path
+  if self.overlay_cfg.get('auto_name',True):
+   previous=self.overlay_cfg.get('name','')
+   if previous!=result.name:
+    # A missing/stale authentication must disable targeting alerts.
+    self.overlay_cfg['name']=result.name
+    self.meter.configure(result.name,self.overlay_cfg['seconds'])
+    self.save(quiet=True)
+    self.revision+=1
+  return result.message if not result.name else result.message+'：'+result.name
+ def periodic_identity_refresh(self):
+  if self.overlay_cfg.get('auto_name',True):self.refresh_identity()
+  if self.root.winfo_exists():self.root.after(15000,self.periodic_identity_refresh)
  def hide_overlay_from_window(self):
   self.toggle_hud(False);self.save(quiet=True);self.revision+=1
  def toggle_hud(self,visible):
@@ -256,7 +281,7 @@ class App:
   self._save_after=None;self._loading_editor=False;self._saving=False;self._watch_generation=0
   outer=ttk.Frame(self.root,padding=16);outer.pack(fill='both',expand=True)
   ttk.Label(outer,text='◈  ECLIPTICA',style='Title.TLabel').pack(anchor='w')
-  ttk.Label(outer,text='MUSIC COMPANION   •   v1.8.1 Lite',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
+  ttk.Label(outer,text='MUSIC COMPANION   •   v1.8.2 Lite',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
   self.tabs=ttk.Notebook(outer);self.tabs.pack(fill='both',expand=True)
   # A shared feedback bar remains visible regardless of the selected tab.
   # The message is derived from the existing status variable so every existing
@@ -461,6 +486,7 @@ class App:
    self.cfg=restored
    self.overlay_cfg=self._overlay_options()
    self.meter.configure(self.overlay_cfg['name'],self.overlay_cfg['seconds'])
+   if self.overlay_cfg.get('auto_name',True):self.refresh_identity()
    self.discovered_bosses=set(restored.get('discovered_bosses',[])) if isinstance(restored.get('discovered_bosses'),list) else set()
    self.toggle_hud(bool(self.overlay_cfg['show']))
    self._loading_editor=True
@@ -650,6 +676,8 @@ class App:
        self.root.after(0,lambda name=p.name:self.status.set('新しいログへ自動切替: '+name))
      except OSError:pass
      continue
+    # Keep the live HUD and target alerts updated as new log lines arrive.
+    for transition in self.meter.ingest(line):self.combat_events.put(transition)
     if 'ECLIPTICA - now in intermission' in line:
      self.root.after(0,lambda:self.handle_event('休憩開始','休憩'))
     elif 'ECLIPTICA - now in lobby' in line:
@@ -718,7 +746,7 @@ class App:
    if group=='fallback' and var.get():fallback[k]=var.get()
   fallback.update({'boss|'+k:v for k,v in self.boss_fallback_map.items() if v})
   return {'music':music,'fallback':fallback,'boss':dict(self.boss_map),
-   'overlay':dict(self.overlay_cfg),
+   'overlay':dict(self.overlay_cfg),'identity_status':self.identity_status,
    'lobby':self.lobby.get(),'log':self.log.get(),'fade':self.fade.get(),
    'volume':self.volume.get(),'difficulty':self.difficulty.get(),
    'phase':self.phase_choice.get(),'difficulties':list(self.DIFFICULTIES),
@@ -726,7 +754,7 @@ class App:
  def api_view(self):
   return {'status':self.status.get(),'event':self.event_status.get(),
     'player':self.player_status.get(),'monitoring':bool(self.worker and self.worker.is_alive() and not self.stop.is_set()),
-    'revision':self.revision,'volume':self.volume.get(),'combat':self.meter.snapshot(),'overlay_visible':bool(self.overlay_cfg['show'])}
+    'revision':self.revision,'volume':self.volume.get(),'combat':self.meter.snapshot(),'overlay_visible':bool(self.overlay_cfg['show']),'identity_status':self.identity_status}
  def api_action(self,d):
   action=d.get('action','')
   if not isinstance(action,str):raise ValueError('不正な操作です')
@@ -734,15 +762,26 @@ class App:
    x=d.get(name,'')
    if not isinstance(x,str) or len(x)>limit:raise ValueError(name+'の文字数が不正です')
    return x.strip()
+  if action=='overlay_detect_name':
+   if not self.overlay_cfg.get('auto_name',True):
+    return '自動取得をONにしてからお試しください'
+   return self.refresh_identity(force=True)
   if action=='overlay_settings':
    own=val('name',90)
+   auto_name=d.get('auto_name',True)
+   if not isinstance(auto_name,bool):raise ValueError('自動取得の指定が不正です')
+   if auto_name:
+    # Browser-submitted names are never trusted as proof of local identity.
+    own=self.overlay_cfg['name'] if self.overlay_cfg.get('auto_name',True) else ''
    try:seconds=int(d.get('seconds',10));volume=int(d.get('volume',65));opacity=int(d.get('opacity',92))
    except (TypeError,ValueError):raise ValueError('HUDの数値設定が不正です')
    if not 1<=seconds<=15 or not 0<=volume<=100 or not 30<=opacity<=100:raise ValueError('HUDの設定範囲外です')
    for key in ('show','alert','other_alerts'):
     if not isinstance(d.get(key),bool):raise ValueError('HUDのチェック項目が不正です')
-   self.overlay_cfg.update(show=d['show'],alert=d['alert'],other_alerts=d['other_alerts'],name=own,seconds=seconds,volume=volume,opacity=opacity)
-   self.meter.configure(own,seconds)
+   self.overlay_cfg.update(show=d['show'],alert=d['alert'],other_alerts=d['other_alerts'],name=own,auto_name=auto_name,seconds=seconds,volume=volume,opacity=opacity)
+   if auto_name:self.refresh_identity(force=True)
+   else:self.identity_status='手入力モード'
+   self.meter.configure(self.overlay_cfg['name'],seconds)
    self.toggle_hud(d['show'])
    self.save(quiet=True);self.revision+=1
    self.status.set('バトルHUDの設定を保存しました')

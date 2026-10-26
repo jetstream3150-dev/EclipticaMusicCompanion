@@ -1,0 +1,34 @@
+"""Local identity detection fixtures; no VRChat credentials or network access."""
+import tempfile
+import time
+from pathlib import Path
+from vrchat_identity import parse_authenticated_name, read_authenticated_name, detect_identity
+
+UUID = 'usr_c244ca22-2273-4440-9b73-074eb346535e'
+assert parse_authenticated_name('2025.07.24 20:43:05 Debug - User Authenticated: Auzlex (' + UUID + ')') == 'Auzlex'
+assert parse_authenticated_name('2026.07.24 20:43:05 Log - [Behaviour] User Authenticated: 自分の表示名') == '自分の表示名'
+assert parse_authenticated_name('OnPlayerJoined User Authenticated: Fake') == ''  # Ignore ambiguous join lines
+assert parse_authenticated_name('2026.01.01 Log - OnPlayerJoined Someone ('+UUID+')') == ''
+assert parse_authenticated_name('2025.07.24 Debug - User Authenticated: ') == ''
+assert parse_authenticated_name('2025.07.24 Debug - User Authenticated: ' + 'A' * 200) == ''
+
+with tempfile.TemporaryDirectory() as folder:
+    base = Path(folder)
+    assert not detect_identity(base).name
+    first = base/'output_log_2026-10-26_18-01-00.txt'
+    first.write_text('Log - OnPlayerJoined OtherUser\n2026.10.26 18:01:00 Debug - User Authenticated: 名前1 (' + UUID + ')\n', encoding='utf8')
+    assert read_authenticated_name(first) == '名前1'
+    assert detect_identity(base).name == '名前1'
+    second = base/'output_log_2026-10-27_18-01-00.txt'
+    second.write_text('2026.10.27 18:01:00 Debug - User Authenticated: 名前2 (' + UUID + ')\nLog - OnPlayerJoined 名前1\n', encoding='utf8')
+    assert detect_identity(base).name == '名前2'
+    assert detect_identity(base,now=time.time()+13*3600).name == ''
+    second.write_text('2026.10.27 Debug - OnPlayerJoined Someone Else\n',encoding='utf8')
+    assert detect_identity(base).name == ''
+    # In large logs, the authenticator event can be early or near the end.
+    second.write_bytes(('2026.10.27 18:01:00 Debug - User Authenticated: 名前2 (' + UUID + ')\n').encode('utf8')+b'X'*6_100_000)
+    assert read_authenticated_name(second) == '名前2'
+    with second.open('ab') as handle:
+        handle.write(('\n2026.10.27 18:02:00 Debug - User Authenticated: 名前3 (' + UUID + ')\n').encode('utf8'))
+    assert read_authenticated_name(second) == '名前3'
+print('VRChat local user identity checks PASS')

@@ -36,7 +36,7 @@ def test_app():
  a.play=oldplay
  a.api_action({'action':'add_boss','boss':'TestBossXYZ'})
  assert 'TestBossXYZ' in a.api_config()['boss_choices']
- result=a.api_action({'action':'overlay_settings','show':True,'name':'MyPlayer','alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
+ result=a.api_action({'action':'overlay_settings','show':True,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
  root.update()
  assert a.hud is not None and a.hud.winfo_exists()
  assert a.api_view()['overlay_visible'] is True
@@ -44,7 +44,7 @@ def test_app():
  a.meter.ingest('ECLIPTICA - damage dealt: 320 STRIKE')
  a.update_hud_loop();root.update()
  assert a.api_view()['combat']['boss_damage']==320
- a.api_action({'action':'overlay_settings','show':False,'name':'MyPlayer','alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
+ a.api_action({'action':'overlay_settings','show':False,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
  root.update();assert a.hud.state()=='withdrawn'
  a.close();print('Tk integration checks PASS')
 

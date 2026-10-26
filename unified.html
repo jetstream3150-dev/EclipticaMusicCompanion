@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ecliptica Music Companion — v1.8.1 Lite</title>
+<title>Ecliptica Music Companion — v1.8.2 Lite</title>
 <style>
 :root{color-scheme:dark;--bg:#080d13;--panel:#111b25;--panel2:#172431;--line:#263743;--text:#edf7f8;--muted:#91a7b4;--a:#5bf2e1;--a2:#73b6ff;--red:#ff8e9b}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,'Segoe UI','Yu Gothic UI',Meiryo,sans-serif;color:var(--text);background:var(--bg)}
@@ -33,7 +33,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
 <body>
 <div class="app">
 <nav>
-  <div class="brand"><div class="mark">ECLIPTICA</div><div class="sub">MUSIC COMPANION</div><div class="version">UNIFIED EDITION · v1.8.1 β Lite</div></div>
+  <div class="brand"><div class="mark">ECLIPTICA</div><div class="sub">MUSIC COMPANION</div><div class="version">UNIFIED EDITION · v1.8.2 β Lite</div></div>
   <button class="navitem active" data-tab="home"><span class="num">01</span>⌂　ホーム</button>
   <button class="navitem" data-tab="music"><span class="num">02</span>♫　曲を設定</button>
   <button class="navitem" data-tab="boss"><span class="num">03</span>♛　ボスの曲</button>
@@ -70,7 +70,10 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
   <header><div class="eyebrow">04 / BATTLE TELEMETRY</div><h1 class="heading">バトルHUD。</h1><div class="lead">ボス名・DPS・ダメージ・ターゲット推定をゲーム画面の上に表示。<br>自分が狙われたと推定したとき、音でも通知します。</div></header>
   <div class="card"><div class="cardh">デスクトップHUDの設定 <small>試験的機能</small></div>
    <label class="check"><input id="hud-show" type="checkbox">ゲーム画面の上に小さなHUDを表示する</label>
-   <label for="hud-name">自分のVRChat表示名（警告音の判定に必須）</label><input id="hud-name" type="text" maxlength="90" placeholder="自分のVRChat表示名を正確に入力">
+   <label for="hud-name">自分のVRChat表示名（警告音の判定に必須）</label>
+   <label class="check"><input id="hud-auto-name" type="checkbox" checked>VRChatログから自分の名前を自動取得する</label>
+   <div class="row wide"><input id="hud-name" type="text" maxlength="90" placeholder="VRChatから取得中…" readonly><button class="btn small" id="hud-detect-name">↻ 今すぐ取得</button></div>
+   <p class="muted" id="hud-name-status">VRChatのログイン情報を確認しています。</p>
    <div class="twocol"><div><label for="hud-seconds">DPS集計時間（秒）</label><input id="hud-seconds" type="number" min="1" max="15" value="10"></div>
    <div><label for="hud-opacity">HUD不透明度（30〜100%）</label><input id="hud-opacity" type="number" min="30" max="100" value="92"></div></div>
    <label class="check"><input id="hud-alert" type="checkbox" checked>自分が狙われた時の警告音を鳴らす</label>
@@ -122,8 +125,8 @@ function fillBossDropdown(names,custom){
  if(previous&&values.includes(previous))box.value=previous;
  $('boss-count').textContent=values.length+' 種類（検出したボスを含む）';
 }
-function loadHudFields(o){$('hud-show').checked=!!o.show;$('hud-name').value=o.name||'';$('hud-seconds').value=o.seconds||10;$('hud-opacity').value=o.opacity||92;$('hud-alert').checked=o.alert!==false;$('hud-other-alert').checked=!!o.other_alerts;$('hud-volume').value=o.volume??65;$('hud-volume-label').textContent=$('hud-volume').value;}
-function hudPayload(){return{show:$('hud-show').checked,name:$('hud-name').value.trim(),seconds:parseInt($('hud-seconds').value),opacity:parseInt($('hud-opacity').value),alert:$('hud-alert').checked,other_alerts:$('hud-other-alert').checked,volume:parseInt($('hud-volume').value)}}
+function loadHudFields(o){$('hud-show').checked=!!o.show;$('hud-auto-name').checked=o.auto_name!==false;$('hud-name').readOnly=$('hud-auto-name').checked;$('hud-name').placeholder=$('hud-auto-name').checked?'VRChatから取得中…':'自分のVRChat表示名を入力';$('hud-detect-name').disabled=!$('hud-auto-name').checked;$('hud-name').value=o.name||'';$('hud-seconds').value=o.seconds||10;$('hud-opacity').value=o.opacity||92;$('hud-alert').checked=o.alert!==false;$('hud-other-alert').checked=!!o.other_alerts;$('hud-volume').value=o.volume??65;$('hud-volume-label').textContent=$('hud-volume').value;}
+function hudPayload(){return{show:$('hud-show').checked,auto_name:$('hud-auto-name').checked,name:$('hud-name').value.trim(),seconds:parseInt($('hud-seconds').value),opacity:parseInt($('hud-opacity').value),alert:$('hud-alert').checked,other_alerts:$('hud-other-alert').checked,volume:parseInt($('hud-volume').value)}}
 function fillMusic(){if(!model)return;currentMusicKey=$('music-diff').value+'|'+$('music-phase').value;$('music-track').value=model.music[currentMusicKey]||'';$('music-fallback').value=model.fallback[currentMusicKey]||''}
 function fillBoss(){if(!model)return;currentBoss=$('boss-name').value.trim();$('boss-track').value=model.boss[currentBoss]||'';$('boss-fallback').value=model.fallback['boss|'+currentBoss]||''}
 async function loadConfig(first=false){const x=await request('/api/config');const prevKey=currentMusicKey,prevBoss=currentBoss;
@@ -142,7 +145,12 @@ async function loadConfig(first=false){const x=await request('/api/config');cons
   if(document.activeElement!==$('music-track')&&document.activeElement!==$('music-fallback'))fillMusic();
   if(document.activeElement!==$('boss-track')&&document.activeElement!==$('boss-fallback'))fillBoss();
  }
- if(first){fillMusic();fillBoss();loadHudFields(x.overlay||{});}else{fillBossDropdown(x.boss_choices,x.boss);revision=x.revision;}}
+ if(first){fillMusic();fillBoss();loadHudFields(x.overlay||{});}else{
+  fillBossDropdown(x.boss_choices,x.boss);
+  if($('hud-auto-name').checked&&document.activeElement!==$('hud-name'))$('hud-name').value=(x.overlay||{}).name||'';
+  revision=x.revision;
+ }
+ $('hud-name-status').textContent=x.identity_status||'ログからの取得を待っています。';} 
 function captureMusic(){if(!currentMusicKey)return null;const [difficulty,phase]=currentMusicKey.split('|');return {difficulty,phase,track:$('music-track').value.trim(),fallback:$('music-fallback').value.trim()}}
 async function saveMusic(silent=false){const d=captureMusic();if(!d)return;model.music[currentMusicKey]=d.track;model.fallback[currentMusicKey]=d.fallback;return safe('set_music',d,silent)}
 function captureBoss(){return{boss:currentBoss,track:$('boss-track').value.trim(),fallback:$('boss-fallback').value.trim()}}
@@ -159,7 +167,18 @@ $('boss-name').addEventListener('change',()=>{clearTimeout(autoSaveTimer);saveBo
 for(const id of ['boss-track','boss-fallback'])$(id).addEventListener('input',()=>queueAutosave(()=>saveBoss(true)));
 $('boss-save').addEventListener('click',()=>saveBoss());
 $('boss-preview').addEventListener('click',()=>safe('play',{track:$('boss-track').value,fallback:$('boss-fallback').value}));
-$('hud-save').addEventListener('click',()=>safe('overlay_settings',hudPayload()));
+$('hud-save').addEventListener('click',async()=>{await safe('overlay_settings',hudPayload());await loadConfig(false)});
+$('hud-auto-name').addEventListener('change',async()=>{
+  $('hud-name').readOnly=$('hud-auto-name').checked;
+  $('hud-detect-name').disabled=!$('hud-auto-name').checked;
+  $('hud-name').placeholder=$('hud-auto-name').checked?'VRChatから取得中…':'自分のVRChat表示名を入力';
+  if($('hud-auto-name').checked)$('hud-name').value='';
+  await safe('overlay_settings',hudPayload());const data=await request('/api/config');model=data;loadHudFields(data.overlay);$('hud-name-status').textContent=data.identity_status||'';
+});
+$('hud-detect-name').addEventListener('click',async()=>{
+ const msg=await safe('overlay_detect_name');if(msg)$('hud-name-status').textContent=msg;
+ const data=await request('/api/config');model=data;loadHudFields(data.overlay);
+});
 $('hud-test').addEventListener('click',()=>safe('overlay_test'));
 $('hud-show').addEventListener('change',()=>safe('overlay_settings',hudPayload()));
 $('hud-volume').addEventListener('input',e=>$('hud-volume-label').textContent=e.target.value);
@@ -182,6 +201,8 @@ let previousStatus='';async function poll(){try{
  $('engine-dot').classList.toggle('ok',v.player.includes('再生中')||v.player.includes('有効化')||v.player.includes('ループ再生'));
  $('monitor-label').textContent=v.monitoring?'監視中':'停止中';$('monitor-dot').classList.toggle('ok',v.monitoring);
  const c=v.combat||{};
+ if($('hud-auto-name').checked&&document.activeElement!==$('hud-name'))$('hud-name').value=c.own_name||'';
+ if(v.identity_status)$('hud-name-status').textContent=v.identity_status;
  $('hud-current-boss').textContent=c.boss||'待機中';$('hud-current-target').textContent=c.is_targeted?'⚠ あなたがターゲット（推定）':(c.target||'未検出');
  $('hud-current-dps').textContent=(c.dps??0).toFixed(1);$('hud-current-damage').textContent=(c.boss_damage??0).toLocaleString();
  $('hud-observation').textContent='解析したダメージイベント '+(c.events_found??0)+'件 / '+(c.dps_window??10)+'秒DPS。イベントが0件ならログ形式を確認してください。';
