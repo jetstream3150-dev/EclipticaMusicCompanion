@@ -1,4 +1,4 @@
-import json,os,re,threading,time,webbrowser,mimetypes,sys,subprocess,shutil
+import json,os,re,threading,time,webbrowser,mimetypes,sys,subprocess,shutil,queue
 from pathlib import Path
 from urllib.parse import urlparse,parse_qs,unquote
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
@@ -14,9 +14,33 @@ DEFAULT={'round':{},'waiting':{},'phase':{},'boss':{},'music':{},'fade':2.0,'vol
 state={'seq':0,'track':'','fade':2,'volume':.8,'stop':False,'player_status':'プレイヤー未接続','player_seen':0,'volume_seq':0,'fallback':''}
 lock=threading.Lock()
 allowed_media=set()
+UI_APP=None
+API_QUEUE=queue.Queue()
 class Handler(BaseHTTPRequestHandler):
  def do_POST(self):
-  if self.path!='/player-status' or self.client_address[0]!='127.0.0.1' or self.headers.get('Host','').split(':')[0] not in ('127.0.0.1','localhost'):
+  host=self.headers.get('Host','').split(':')[0]
+  if self.client_address[0]!='127.0.0.1' or host not in ('127.0.0.1','localhost'):
+   self.send_error(403);return
+  if self.path in ('/api/action','/api/goodbye'):
+   origin=self.headers.get('Origin','')
+   expected=f'http://127.0.0.1:{self.server.server_port}'
+   if origin!=expected or UI_APP is None:
+    self.send_error(403);return
+   if self.path=='/api/goodbye':
+    UI_APP.ui_goodbye_at=time.time()
+    self.send_response(204);self.end_headers();return
+   if self.headers.get('X-Ecliptica-UI')!='1' or self.headers.get('Content-Type','').split(';')[0].strip()!='application/json':
+    self.send_error(403);return
+   try:
+    size=int(self.headers.get('Content-Length','0'))
+    if size<2 or size>20000:raise ValueError('操作データが不正です')
+    data=json.loads(self.rfile.read(size).decode('utf-8'))
+    if not isinstance(data,dict):raise ValueError('操作データが不正です')
+    value=self._dispatch(lambda:UI_APP.api_action(data),timeout=180 if data.get('action') in ('pick','backup','restore') else 20)
+    self._json_response({'ok':True,'result':value});return
+   except Exception as exc:
+    self._json_response({'ok':False,'error':str(exc)[:220]},400);return
+  if self.path!='/player-status':
    self.send_error(403);return
   try:
    size=int(self.headers.get('Content-Length','0'))
@@ -25,11 +49,42 @@ class Handler(BaseHTTPRequestHandler):
    with lock:state['player_status']=str(data.get('status',''))[:240];state['player_seen']=time.time()
    self.send_response(204);self.end_headers()
   except (ValueError,UnicodeError,json.JSONDecodeError):self.send_error(400)
+ def _json_response(self,obj,status=200):
+  raw=json.dumps(obj,ensure_ascii=False).encode('utf-8')
+  self.send_response(status)
+  self.send_header('Content-Type','application/json; charset=utf-8')
+  self.send_header('Cache-Control','no-store')
+  self.send_header('X-Content-Type-Options','nosniff')
+  self.send_header('Content-Length',str(len(raw)))
+  self.end_headers();self.wfile.write(raw)
+ def _dispatch(self,fun,timeout=20):
+  evt=threading.Event();result={}
+  API_QUEUE.put((fun,evt,result))
+  if not evt.wait(timeout):raise TimeoutError('操作の応答がありません。アプリ画面を確認してください')
+  if 'error' in result:raise RuntimeError(result['error'])
+  return result.get('value')
  def log_message(self,*args):pass
  def do_GET(self):
   u=urlparse(self.path)
   if self.headers.get('Host','').split(':')[0] not in ('127.0.0.1','localhost'):
    self.send_error(403);return
+  if u.path in ('/api/config','/api/view'):
+   if UI_APP is None:self.send_error(503);return
+   UI_APP.ui_last_seen=time.time();UI_APP.ui_goodbye_at=0
+   try:
+    if u.path=='/api/view':
+     data=self._dispatch(lambda:UI_APP.api_view())
+    else:data=self._dispatch(lambda:UI_APP.api_config())
+    self._json_response({'ok':True,'result':data})
+   except Exception as exc:self._json_response({'ok':False,'error':str(exc)[:220]},503)
+   return
+  if u.path in ('/ui','/engine.js'):
+   target=BASE/('unified.html' if u.path=='/ui' else 'engine.js')
+   if not target.is_file():self.send_error(404);return
+   b=target.read_bytes();self.send_response(200)
+   self.send_header('Content-Type','text/html; charset=utf-8' if u.path=='/ui' else 'application/javascript; charset=utf-8')
+   self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff')
+   self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
   if u.path=='/state':
    with lock: b=json.dumps(state).encode()
    self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(b);return
@@ -60,7 +115,7 @@ class Handler(BaseHTTPRequestHandler):
   self.send_error(404)
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.6.1 β');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.7 β');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def build(self):
   BG='#0b1020';PANEL='#17263d';FIELD='#263650';EDGE='#304363';TEXT='#edf4ff';MUTED='#9cb0cc';ACCENT='#49e7da'
   style=ttk.Style(self.root)
@@ -104,7 +159,7 @@ class App:
   self._save_after=None;self._loading_editor=False;self._saving=False;self._watch_generation=0
   outer=ttk.Frame(self.root,padding=16);outer.pack(fill='both',expand=True)
   ttk.Label(outer,text='◈  ECLIPTICA',style='Title.TLabel').pack(anchor='w')
-  ttk.Label(outer,text='MUSIC COMPANION   •   v1.6.1',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
+  ttk.Label(outer,text='MUSIC COMPANION   •   v1.7',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
   self.tabs=ttk.Notebook(outer);self.tabs.pack(fill='both',expand=True)
   # A shared feedback bar remains visible regardless of the selected tab.
   # The message is derived from the existing status variable so every existing
@@ -363,9 +418,25 @@ class App:
   try:
    obj=json.loads(Path(source).read_text('utf-8'))
    if not isinstance(obj,dict) or not isinstance(obj.get('music',{}),dict) or not isinstance(obj.get('boss',{}),dict):raise ValueError('対応していない設定ファイルです')
-   if not messagebox.askyesno('確認','現在の設定を置き換えてアプリを再起動しますか？'):return
-   CFG.write_text(json.dumps(obj,ensure_ascii=False,indent=2),'utf-8')
-   messagebox.showinfo('復元完了','設定を復元しました。アプリを終了して起動し直してください。')
+   if not messagebox.askyesno('確認','現在の設定をバックアップの内容で置き換えますか？'):return
+   restored=json.loads(json.dumps(DEFAULT));restored.update(obj)
+   if not isinstance(restored.get('fallback'),dict):raise ValueError('予備MP3の設定が正しくありません')
+   self.cfg=restored
+   self._loading_editor=True
+   try:
+    for (group,key),var in self.vars.items():
+     var.set(restored.get(group,{}).get(key,''))
+    self.boss_map=dict(restored.get('boss',{}))
+    self.boss_fallback_map={k[5:]:v for k,v in restored.get('fallback',{}).items() if k.startswith('boss|')}
+    self.lobby.set(restored.get('lobby',''))
+    self.log.set(restored.get('log',''))
+    self.fade.set(restored.get('fade',2))
+    self.volume.set(restored.get('volume',80))
+   finally:self._loading_editor=False
+   self.load_music_editor();self.boss_name_changed()
+   self.on_volume_change();self.save(quiet=True);self.revision+=1
+   self.status.set('バックアップから設定を復元しました')
+   messagebox.showinfo('復元完了','設定を復元しました。')
   except Exception as e:messagebox.showerror('復元失敗',str(e))
  def open_config_dir(self):
   try:os.startfile(str(CFG.parent));self.status.set('設定の保存先を開きました')
@@ -392,8 +463,8 @@ class App:
   self._saving=True
   if self._save_after is not None:
    self.root.after_cancel(self._save_after);self._save_after=None
-  if hasattr(self,'music_editor') and not getattr(self,'_loading_editor',False):self.update_music_editor()
-  if hasattr(self,'boss_track') and not getattr(self,'_loading_editor',False):self.update_boss_editor()
+  if not self.unified and hasattr(self,'music_editor') and not getattr(self,'_loading_editor',False):self.update_music_editor()
+  if not self.unified and hasattr(self,'boss_track') and not getattr(self,'_loading_editor',False):self.update_boss_editor()
   music={};boss=dict(self.boss_map);fallback={}
   for (group,k),v in self.vars.items():
    if group=='music' and v.get().strip():music[k]=v.get().strip()
@@ -573,6 +644,168 @@ class App:
    fallback=fallbacks.get(name.casefold()) or fallbacks.get(base.casefold(),'')
    self.play(track,fallback)
   else:self.play_auto('ボス')
+ def drain_api(self):
+  for _ in range(30):
+   try:fun,evt,result=API_QUEUE.get_nowait()
+   except queue.Empty:break
+   try:result['value']=fun()
+   except Exception as exc:result['error']=str(exc)
+   finally:evt.set()
+  if self.root.winfo_exists():self.root.after(40,self.drain_api)
+ def api_config(self):
+  music={};fallback={}
+  for (group,k),var in self.vars.items():
+   if group=='music' and var.get():music[k]=var.get()
+   if group=='fallback' and var.get():fallback[k]=var.get()
+  fallback.update({'boss|'+k:v for k,v in self.boss_fallback_map.items() if v})
+  return {'music':music,'fallback':fallback,'boss':dict(self.boss_map),
+   'lobby':self.lobby.get(),'log':self.log.get(),'fade':self.fade.get(),
+   'volume':self.volume.get(),'difficulty':self.difficulty.get(),
+   'phase':self.phase_choice.get(),'difficulties':list(self.DIFFICULTIES),
+   'phases':list(self.PHASES),'boss_choices':list(self.BOSS_CHOICES),'revision':self.revision}
+ def api_view(self):
+  return {'status':self.status.get(),'event':self.event_status.get(),
+    'player':self.player_status.get(),'monitoring':bool(self.worker and self.worker.is_alive() and not self.stop.is_set()),
+    'revision':self.revision,'volume':self.volume.get()}
+ def api_action(self,d):
+  action=d.get('action','')
+  if not isinstance(action,str):raise ValueError('不正な操作です')
+  def val(name,limit=4096):
+   x=d.get(name,'')
+   if not isinstance(x,str) or len(x)>limit:raise ValueError(name+'の文字数が不正です')
+   return x.strip()
+  if action=='start':
+   self.start();return self.status.get()
+  if action=='stop':self.stop_music();return self.status.get()
+  if action=='stop_watch':self.stop_watch();return self.status.get()
+  if action=='save':self.save();return self.status.get()
+  if action=='play':
+   self.play(val('track'),val('fallback'));return self.status.get()
+  if action=='play_selected':
+   difficulty=val('difficulty',80);phase=val('phase',80)
+   if difficulty not in self.DIFFICULTIES or phase not in self.PHASES:raise ValueError('難易度・場面が不正です')
+   self.difficulty.set(difficulty);self.phase_choice.set(phase)
+   self.play_selected();return self.status.get()
+  if action=='set_music':
+   difficulty=val('difficulty',80);phase=val('phase',80)
+   if difficulty not in self.DIFFICULTIES or phase not in self.PHASES:raise ValueError('難易度・場面が不正です')
+   key=difficulty+'|'+phase
+   self.vars[('music',key)].set(val('track'))
+   self.vars[('fallback',key)].set(val('fallback'))
+   self.save(quiet=True);self.revision+=1
+   self.status.set('曲の設定を保存しました: '+difficulty+' / '+phase)
+   return self.status.get()
+  if action=='set_boss':
+   name=val('boss',120)
+   if not name:raise ValueError('ボス名を入力してください')
+   track=val('track');fallback=val('fallback')
+   if track:self.boss_map[name]=track
+   else:self.boss_map.pop(name,None)
+   if fallback:self.boss_fallback_map[name]=fallback
+   else:self.boss_fallback_map.pop(name,None)
+   self.save(quiet=True);self.revision+=1
+   self.status.set('ボスの曲を保存しました: '+name)
+   return self.status.get()
+  if action=='set_lobby':
+   self.lobby.set(val('track'));self.save(quiet=True);self.revision+=1
+   self.status.set('ロビーBGMを保存しました');return self.status.get()
+  if action=='settings':
+   try:fade=float(d.get('fade',2));volume=int(d.get('volume',80))
+   except (ValueError,TypeError):raise ValueError('数値が不正です')
+   if not 0<=fade<=15 or not 0<=volume<=100:raise ValueError('設定範囲外です')
+   self.fade.set(fade);self.volume.set(volume)
+   log=val('log');self.log.set(log)
+   self.on_volume_change();self.save(quiet=True);self.revision+=1
+   self.status.set('その他の設定を保存しました');return self.status.get()
+  if action=='volume':
+   try:volume=int(d.get('volume',80))
+   except (ValueError,TypeError):raise ValueError('音量が不正です')
+   self.volume.set(max(0,min(100,volume)));self.on_volume_change();self.schedule_save()
+   return '音量 '+str(self.volume.get())
+  if action=='detect':self.detect();self.revision+=1;return self.log.get()
+  if action=='pick':
+   path=filedialog.askopenfilename(parent=self.root,title='音楽ファイルを選択',filetypes=[('音楽ファイル','*.mp3 *.wav *.ogg *.m4a')])
+   if path:self.status.set('音楽ファイルを選択しました');return path
+   return ''
+  if action=='backup':self.export_config();return self.status.get()
+  if action=='restore':self.import_config();return self.status.get()
+  if action=='open_folder':self.open_config_dir();return self.status.get()
+  if action=='download':
+   url=val('url');kind=val('kind',30);key=val('key',200)
+   if not d.get('authorized'):raise ValueError('ダウンロードの利用許可を確認してください')
+   parsed=urlparse(url)
+   if parsed.scheme!='https' or (parsed.hostname or '').lower() not in ('youtube.com','www.youtube.com','m.youtube.com','music.youtube.com','youtu.be'):
+    raise ValueError('YouTubeのHTTPS URLを指定してください')
+   if kind=='music':
+    if '|' not in key:raise ValueError('難易度と場面を指定してください')
+    diff,phase=key.split('|',1)
+    if diff not in self.DIFFICULTIES or phase not in self.PHASES:raise ValueError('難易度・場面が不正です')
+   elif kind=='boss':
+    if not key.strip():raise ValueError('ボス名が必要です')
+   elif kind!='lobby':raise ValueError('ダウンロード先が不正です')
+   self.download_web_mp3(url,kind,key)
+   return '音源の確認・変換を開始しました'
+  if action=='quit':
+   self.root.after(200,self.close);return '終了します'
+  raise ValueError('未対応の操作です: '+action)
+ def download_web_mp3(self,url,kind,key):
+  try:import yt_dlp,imageio_ffmpeg
+  except ImportError:raise RuntimeError('MP3変換の必要ライブラリが見つかりません。GitHub Actionsで再ビルドしてください')
+  destination=CFG.parent/'DownloadedMusic';destination.mkdir(parents=True,exist_ok=True)
+  self.status.set('MP3変換を準備しています…')
+  def worker():
+   try:
+    ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
+    opts={'format':'bestaudio/best','noplaylist':True,'quiet':True,'no_warnings':True,
+      'socket_timeout':20,'retries':2,'outtmpl':str(destination/'%(id)s.%(ext)s'),
+      'ffmpeg_location':ffmpeg,'postprocessors':[{'key':'FFmpegExtractAudio','preferredcodec':'mp3','preferredquality':'192'}]}
+    with yt_dlp.YoutubeDL(opts) as ydl:
+     info=ydl.extract_info(url,download=False)
+     if not info or info.get('_type')=='playlist':raise ValueError('単一動画のみ指定してください')
+     if (info.get('duration') or 0)>7200:raise ValueError('2時間以上の音源には対応していません')
+     vid=str(info.get('id',''))
+     if not re.fullmatch(r'[a-zA-Z0-9_-]{6,32}',vid):raise ValueError('動画IDを取得できませんでした')
+     mp3=destination/(vid+'.mp3')
+     if not mp3.is_file():ydl.download([url])
+     if not mp3.is_file() or mp3.stat().st_size<1000:raise RuntimeError('MP3の生成に失敗しました')
+    def done():
+     if kind=='music':self.vars[('music',key)].set(str(mp3))
+     elif kind=='boss':self.boss_map[key]=str(mp3)
+     else:self.lobby.set(str(mp3))
+     self.save(quiet=True);self.revision+=1
+     self.status.set('MP3の変換と登録が完了しました: '+mp3.name)
+    self.root.after(0,done)
+   except Exception as exc:
+    msg=str(exc).splitlines()[0][:180]
+    self.root.after(0,lambda m=msg:self.status.set('MP3変換失敗: '+m))
+  threading.Thread(target=worker,daemon=True).start()
+ def open_unified(self):
+  # The complete interface and playback engine share ONE dedicated Edge app window.
+  self.unified=True
+  url=f'http://127.0.0.1:{self.port}/ui'
+  candidates=[Path(os.environ.get('PROGRAMFILES(X86)','C:/Program Files (x86)'))/'Microsoft/Edge/Application/msedge.exe',
+   Path(os.environ.get('PROGRAMFILES','C:/Program Files'))/'Microsoft/Edge/Application/msedge.exe',
+   Path(os.environ.get('LOCALAPPDATA',''))/'Microsoft/Edge/Application/msedge.exe']
+  edge=next((str(x) for x in candidates if x.is_file()),None)
+  try:
+   if edge:
+    profile=CFG.parent/'edge_unified_profile'
+    profile.mkdir(parents=True,exist_ok=True)
+    self.player_process=subprocess.Popen([edge,'--user-data-dir='+str(profile),'--no-first-run',
+     '--app='+url,'--window-size=1130,850'],close_fds=True)
+   else:
+    # Default browser can still show a single tab instead of two app windows.
+    if not webbrowser.open(url,new=1):raise RuntimeError('ブラウザを開けませんでした')
+   self.player_launched=True;self.ui_launched_at=time.time()
+  except Exception as exc:
+   self.unified=False;self.root.deiconify()
+   messagebox.showerror('統合画面を開けませんでした','従来の操作画面を表示します。\n'+str(exc))
+ def check_ui_closed(self):
+  # pagehide is delayed so that a simple browser refresh does not kill the app.
+  if self.unified and self.ui_goodbye_at and time.time()-self.ui_goodbye_at>6:
+   if self.ui_last_seen<self.ui_goodbye_at:self.close();return
+   self.ui_goodbye_at=0
+  if self.root.winfo_exists():self.root.after(1800,self.check_ui_closed)
  def close(self):
   self.stop.set();self.save(quiet=True);self.stop_music()
   if self.player_process is not None and self.player_process.poll() is None:
@@ -582,5 +815,17 @@ class App:
    except Exception:pass
   self.root.destroy()
 if __name__=='__main__':
+ if sys.platform=='win32':
+  import ctypes
+  mutex=ctypes.windll.kernel32.CreateMutexW(None,False,'Local\\EclipticaMusicCompanionSingleWindow')
+  if ctypes.windll.kernel32.GetLastError()==183:
+   ctypes.windll.user32.MessageBoxW(None,'Ecliptica Music Companionは既に起動しています。タスクバーを確認してください。','Ecliptica Music Companion',0x40)
+   sys.exit(0)
  server=ThreadingHTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=server.serve_forever,daemon=True).start()
- root=tk.Tk();App(root,server.server_port);root.mainloop();server.shutdown()
+ root=tk.Tk();root.withdraw()
+ UI_APP=App(root,server.server_port)
+ UI_APP.unified=True
+ root.after(40,UI_APP.drain_api)
+ root.after(350,UI_APP.open_unified)
+ root.after(1800,UI_APP.check_ui_closed)
+ root.mainloop();server.shutdown()
