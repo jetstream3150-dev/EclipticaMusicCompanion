@@ -63,8 +63,11 @@ def detect_identity(log_dir: Path, *, now: float | None = None,
     """Find the current local identity, or fail closed with an explanation."""
     now = time.time() if now is None else now
     try:
+        # Some Windows filesystems can report identical modification times for
+        # logs written in quick succession. VRChat log filenames include their
+        # creation timestamp, so use that as a deterministic tie-breaker.
         logs = sorted(log_dir.glob('output_log_*.txt'),
-                      key=lambda p: p.stat().st_mtime, reverse=True)
+                      key=lambda p: (p.stat().st_mtime_ns, p.name), reverse=True)
     except OSError:
         logs = []
     if not logs:
