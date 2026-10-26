@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ecliptica Music Companion — v1.7</title>
+<title>Ecliptica Music Companion — v1.8</title>
 <style>
 :root{color-scheme:dark;--bg:#080d13;--panel:#111b25;--panel2:#172431;--line:#263743;--text:#edf7f8;--muted:#91a7b4;--a:#5bf2e1;--a2:#73b6ff;--red:#ff8e9b}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,'Segoe UI','Yu Gothic UI',Meiryo,sans-serif;color:var(--text);background:var(--bg)}
@@ -33,11 +33,12 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
 <body>
 <div class="app">
 <nav>
-  <div class="brand"><div class="mark">ECLIPTICA</div><div class="sub">MUSIC COMPANION</div><div class="version">UNIFIED EDITION · v1.7 β</div></div>
+  <div class="brand"><div class="mark">ECLIPTICA</div><div class="sub">MUSIC COMPANION</div><div class="version">UNIFIED EDITION · v1.8 β</div></div>
   <button class="navitem active" data-tab="home"><span class="num">01</span>⌂　ホーム</button>
   <button class="navitem" data-tab="music"><span class="num">02</span>♫　曲を設定</button>
   <button class="navitem" data-tab="boss"><span class="num">03</span>♛　ボスの曲</button>
-  <button class="navitem" data-tab="other"><span class="num">04</span>⚙　その他</button>
+  <button class="navitem" data-tab="hud"><span class="num">04</span>⚔　バトルHUD</button>
+  <button class="navitem" data-tab="other"><span class="num">05</span>⚙　その他</button>
   <div class="bottom-nav">ONE WINDOW.<br>YOUR GAME. YOUR SOUND.<br><br>再生エンジンと設定を統合。</div>
 </nav>
 <main>
@@ -55,12 +56,38 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
  </section>
  <section class="panel" id="boss">
   <header><div class="eyebrow">03 / BOSS-SPECIFIC</div><h1 class="heading">ボスの曲を。</h1><div class="lead">遭遇するボスに合わせて、その戦いだけのBGMを。</div></header>
-  <div class="card"><div class="cardh">01　ボスを選ぶ</div><label for="boss-name">ボス名（直接入力可）</label><input type="text" id="boss-name" list="boss-list" placeholder="例: Kakarot"><datalist id="boss-list"></datalist></div>
+  <div class="card"><div class="cardh">01　ボスを選ぶ <small id="boss-count">一覧を読み込み中</small></div>
+   <label for="boss-name">ボス一覧（クリックして選択）</label><select id="boss-name"></select>
+   <p class="muted">形態別のボスも表示。ログで初めて見つけた名前は自動的に一覧へ追加されます。</p>
+   <label for="boss-custom">一覧にないボスを手動で追加</label>
+   <div class="row"><input type="text" id="boss-custom" placeholder="例: ボスのログ上の名前" maxlength="120"><button class="btn small" id="boss-add">＋ 追加</button></div>
+   <p class="muted">ボス名はVRChatログの名前と一致させてください。追加した名前にも専用BGMを設定できます。</p>
+  </div>
   <div class="card"><div class="cardh">02　専用BGM</div><label for="boss-track">YouTube URL または音楽ファイル</label><div class="row wide"><input type="text" id="boss-track" placeholder="ボス専用の音楽" spellcheck="false"><button class="btn small" data-pick="boss-track">ファイル</button></div><label for="boss-fallback">予備MP3</label><div class="row wide"><input type="text" id="boss-fallback" placeholder="必要な場合のみ" spellcheck="false"><button class="btn small" data-pick="boss-fallback">ファイル</button></div><div class="btns" style="margin-top:21px"><button class="btn primary" id="boss-save">✓ 設定を保存</button><button class="btn" id="boss-preview">▶ この曲を試す</button><button class="btn danger" data-action="stop">■ 停止</button></div><p class="muted">ボス固有の音楽が未設定の場合、難易度別のボスBGMが使用されます。</p></div>
   <div class="card download"><div class="cardh">許可された音源をMP3として保存</div><label for="boss-url">YouTube URL</label><input type="url" id="boss-url" placeholder="許可を得た音源のURL"><label class="check"><input type="checkbox" id="boss-authorized">この音源をダウンロード・変換する許可を得ています。</label><button class="btn small" id="boss-download">↓ MP3に変換して登録</button></div>
  </section>
+ <section class="panel" id="hud">
+  <header><div class="eyebrow">04 / BATTLE TELEMETRY</div><h1 class="heading">バトルHUD。</h1><div class="lead">ボス名・DPS・ダメージ・ターゲット推定をゲーム画面の上に表示。<br>自分が狙われたと推定したとき、音でも通知します。</div></header>
+  <div class="card"><div class="cardh">デスクトップHUDの設定 <small>試験的機能</small></div>
+   <label class="check"><input id="hud-show" type="checkbox">ゲーム画面の上に小さなHUDを表示する</label>
+   <label for="hud-name">自分のVRChat表示名（警告音の判定に必須）</label><input id="hud-name" type="text" maxlength="90" placeholder="自分のVRChat表示名を正確に入力">
+   <div class="twocol"><div><label for="hud-seconds">DPS集計時間（秒）</label><input id="hud-seconds" type="number" min="1" max="15" value="10"></div>
+   <div><label for="hud-opacity">HUD不透明度（30〜100%）</label><input id="hud-opacity" type="number" min="30" max="100" value="92"></div></div>
+   <label class="check"><input id="hud-alert" type="checkbox" checked>自分が狙われた時の警告音を鳴らす</label>
+   <label class="check"><input id="hud-other-alert" type="checkbox">他人同士のターゲット変更も通知する</label>
+   <label for="hud-volume">警告音量（BGMとは別） <span id="hud-volume-label">65</span>%</label><input id="hud-volume" type="range" min="0" max="100" value="65">
+   <div class="btns" style="margin-top:17px"><button class="btn primary" id="hud-save">✓ HUDの設定を保存</button><button class="btn" id="hud-test">♪ 警告音を試す</button></div>
+   <div class="hint">BGMプレイヤーは1画面のままです。HUD表示をONにしたときだけ、ゲームに重なる小窓が出ます。HUDの上端をドラッグして移動できます。</div>
+  </div>
+  <div class="card"><div class="cardh">ライブ戦闘データ</div>
+   <div class="twocol"><div><div class="smallcap">CURRENT BOSS</div><strong id="hud-current-boss">待機中</strong></div><div><div class="smallcap">TARGET (推定)</div><strong id="hud-current-target">未検出</strong></div>
+   <div><div class="smallcap">DPS</div><strong id="hud-current-dps">0.0</strong></div><div><div class="smallcap">BOSS DAMAGE</div><strong id="hud-current-damage">0</strong></div></div>
+   <p class="muted" id="hud-observation">ログの解析を待っています。</p>
+  </div>
+  <div class="card"><div class="cardh">利用前の注意</div><p class="muted">VRChatの設定 → デバッグ → ログ出力を「完全」にしてください。ログの形式はワールド更新によって変わるため、現時点のDPS・ターゲット検知は試験的です。ログに該当イベントが出ていないと0や未検出になります。ターゲットは推定であり、戦闘中の安全を保証しません。</p><p class="muted">このHUDはWindowsのデスクトップ用です。SteamVRのヘッドセット内表示には未対応。フルスクリーン排他モードでは表示されないことがあります。</p></div>
+ </section>
  <section class="panel" id="other">
-  <header><div class="eyebrow">04 / PREFERENCES</div><h1 class="heading">その他の設定。</h1><div class="lead">ロビーBGMや再生・ログ検出の詳細を調整します。</div></header>
+  <header><div class="eyebrow">05 / PREFERENCES</div><h1 class="heading">その他の設定。</h1><div class="lead">ロビーBGMや再生・ログ検出の詳細を調整します。</div></header>
   <div class="card"><div class="cardh">ロビーの音楽</div><label for="lobby-track">YouTube URL または音楽ファイル</label><div class="row wide"><input type="text" id="lobby-track" placeholder="ロビーで再生したい曲"><button class="btn small" data-pick="lobby-track">ファイル</button></div><div class="btns" style="margin-top:17px"><button class="btn primary" id="lobby-save">✓ 保存</button><button class="btn" id="lobby-preview">▶ ロビーの曲を試す</button><button class="btn danger" data-action="stop">■ 停止</button></div></div>
   <div class="card"><div class="cardh">詳細設定</div><label for="log-path">VRChatのログファイル</label><div class="row wide"><input type="text" id="log-path" placeholder="通常は自動検出"><button class="btn small" id="detect-log">最新を探す</button></div><div class="twocol"><div><label for="fade-secs">曲の切替時間（秒）</label><input type="number" min="0" max="15" step="0.5" id="fade-secs" value="2"></div></div><div class="btns" style="margin-top:18px"><button class="btn primary" id="other-save">✓ 設定を保存</button></div></div>
   <div class="card"><div class="cardh">バックアップと復元</div><div class="btns"><button class="btn" data-action="backup">バックアップ</button><button class="btn" data-action="restore">復元</button><button class="btn" data-action="open_folder">保存先を開く</button></div></div>
@@ -88,6 +115,15 @@ async function request(path,payload){const opt=payload?{method:'POST',headers:{'
 async function action(name,params={},silent=false){try{let result=await request('/api/action',{action:name,...params});if(!silent)toast(typeof result==='string'&&result?result:'操作が完了しました');return result}catch(e){toast(e.message,true);throw e}}
 async function safe(name,params={},silent=false){try{return await action(name,params,silent)}catch(e){return null}}
 function opts(id,values){const el=$(id);el.replaceChildren(...values.map(x=>new Option(x,x)))}
+function fillBossDropdown(names,custom){
+ const box=$('boss-name');const previous=box.value||currentBoss;
+ const values=[...new Set([...(names||[]),...Object.keys(custom||{}),...Array.from(box.options).map(x=>x.value)].filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+ box.replaceChildren(...values.map(n=>new Option(n,n)));
+ if(previous&&values.includes(previous))box.value=previous;
+ $('boss-count').textContent=values.length+' 種類（検出したボスを含む）';
+}
+function loadHudFields(o){$('hud-show').checked=!!o.show;$('hud-name').value=o.name||'';$('hud-seconds').value=o.seconds||10;$('hud-opacity').value=o.opacity||92;$('hud-alert').checked=o.alert!==false;$('hud-other-alert').checked=!!o.other_alerts;$('hud-volume').value=o.volume??65;$('hud-volume-label').textContent=$('hud-volume').value;}
+function hudPayload(){return{show:$('hud-show').checked,name:$('hud-name').value.trim(),seconds:parseInt($('hud-seconds').value),opacity:parseInt($('hud-opacity').value),alert:$('hud-alert').checked,other_alerts:$('hud-other-alert').checked,volume:parseInt($('hud-volume').value)}}
 function fillMusic(){if(!model)return;currentMusicKey=$('music-diff').value+'|'+$('music-phase').value;$('music-track').value=model.music[currentMusicKey]||'';$('music-fallback').value=model.fallback[currentMusicKey]||''}
 function fillBoss(){if(!model)return;currentBoss=$('boss-name').value.trim();$('boss-track').value=model.boss[currentBoss]||'';$('boss-fallback').value=model.fallback['boss|'+currentBoss]||''}
 async function loadConfig(first=false){const x=await request('/api/config');const prevKey=currentMusicKey,prevBoss=currentBoss;
@@ -95,7 +131,7 @@ async function loadConfig(first=false){const x=await request('/api/config');cons
  if(first){for(const id of ['home-diff','music-diff'])opts(id,x.difficulties);for(const id of ['home-phase','music-phase'])opts(id,x.phases);
  $('home-diff').value=x.difficulty;$('home-phase').value=x.phase;
  $('music-diff').value=x.difficulties[0];$('music-phase').value='戦闘';
- $('boss-list').replaceChildren(...[...new Set([...x.boss_choices,...Object.keys(x.boss)])].map(n=>{let e=document.createElement('option');e.value=n;return e}));
+ fillBossDropdown(x.boss_choices,x.boss);
  $('boss-name').value=x.boss_choices[0]||'';
  $('fade-secs').value=x.fade;$('master-volume').value=x.volume;$('volume-label').textContent=x.volume;
  $('log-path').value=x.log;$('lobby-track').value=x.lobby;
@@ -106,7 +142,7 @@ async function loadConfig(first=false){const x=await request('/api/config');cons
   if(document.activeElement!==$('music-track')&&document.activeElement!==$('music-fallback'))fillMusic();
   if(document.activeElement!==$('boss-track')&&document.activeElement!==$('boss-fallback'))fillBoss();
  }
- if(first){fillMusic();fillBoss()}}
+ if(first){fillMusic();fillBoss();loadHudFields(x.overlay||{});}else{fillBossDropdown(x.boss_choices,x.boss);revision=x.revision;}}
 function captureMusic(){if(!currentMusicKey)return null;const [difficulty,phase]=currentMusicKey.split('|');return {difficulty,phase,track:$('music-track').value.trim(),fallback:$('music-fallback').value.trim()}}
 async function saveMusic(silent=false){const d=captureMusic();if(!d)return;model.music[currentMusicKey]=d.track;model.fallback[currentMusicKey]=d.fallback;return safe('set_music',d,silent)}
 function captureBoss(){return{boss:currentBoss,track:$('boss-track').value.trim(),fallback:$('boss-fallback').value.trim()}}
@@ -118,10 +154,15 @@ for(const id of ['music-diff','music-phase'])$(id).addEventListener('change',()=
 for(const id of ['music-track','music-fallback'])$(id).addEventListener('input',()=>queueAutosave(()=>saveMusic(true)));
 $('music-save').addEventListener('click',()=>saveMusic());
 $('music-preview').addEventListener('click',()=>safe('play',{track:$('music-track').value,fallback:$('music-fallback').value}));
+$('boss-add').addEventListener('click',()=>{const name=$('boss-custom').value.trim();if(!name)return toast('追加するボス名を入力してください',true);if(name.length>120)return toast('ボス名が長すぎます',true);const select=$('boss-name');if(!Array.from(select.options).some(x=>x.value===name))select.add(new Option(name,name));select.value=name;select.dispatchEvent(new Event('change'));$('boss-custom').value='';safe('add_boss',{boss:name},true);$('boss-count').textContent=select.options.length+' 種類（手動追加を含む）';toast('ボスを選択しました。曲を登録して保存してください。')});
 $('boss-name').addEventListener('change',()=>{clearTimeout(autoSaveTimer);saveBoss(true);fillBoss()});
 for(const id of ['boss-track','boss-fallback'])$(id).addEventListener('input',()=>queueAutosave(()=>saveBoss(true)));
 $('boss-save').addEventListener('click',()=>saveBoss());
 $('boss-preview').addEventListener('click',()=>safe('play',{track:$('boss-track').value,fallback:$('boss-fallback').value}));
+$('hud-save').addEventListener('click',()=>safe('overlay_settings',hudPayload()));
+$('hud-test').addEventListener('click',()=>safe('overlay_test'));
+$('hud-show').addEventListener('change',()=>safe('overlay_settings',hudPayload()));
+$('hud-volume').addEventListener('input',e=>$('hud-volume-label').textContent=e.target.value);
 $('lobby-track').addEventListener('input',()=>queueAutosave(()=>safe('set_lobby',{track:$('lobby-track').value},true)));
 $('lobby-save').addEventListener('click',()=>safe('set_lobby',{track:$('lobby-track').value}));
 $('lobby-preview').addEventListener('click',()=>safe('play',{track:$('lobby-track').value}));
@@ -144,6 +185,11 @@ let previousStatus='';async function poll(){try{
  $('engine-label').textContent=v.player.includes('未起動')?'待機中':'プレイヤー接続中';
  $('engine-dot').classList.toggle('ok',v.player.includes('再生中')||v.player.includes('有効化')||v.player.includes('ループ再生'));
  $('monitor-label').textContent=v.monitoring?'監視中':'停止中';$('monitor-dot').classList.toggle('ok',v.monitoring);
+ const c=v.combat||{};
+ $('hud-current-boss').textContent=c.boss||'待機中';$('hud-current-target').textContent=c.is_targeted?'⚠ あなたがターゲット（推定）':(c.target||'未検出');
+ $('hud-current-dps').textContent=(c.dps??0).toFixed(1);$('hud-current-damage').textContent=(c.boss_damage??0).toLocaleString();
+ $('hud-observation').textContent='解析したダメージイベント '+(c.events_found??0)+'件 / '+(c.dps_window??10)+'秒DPS。イベントが0件ならログ形式を確認してください。';
+ if(!$('hud-show').matches(':focus')&&v.overlay_visible!==$('hud-show').checked){$('hud-show').checked=!!v.overlay_visible;}
  if(v.status!==previousStatus){previousStatus=v.status}
  if(v.revision>revision&&document.activeElement.tagName!=='INPUT')await loadConfig(false);
  const s=await fetch('/state',{cache:'no-store'}).then(r=>r.json());$('now-playing').textContent=s.stop?'停止中':s.track||'曲はまだ選ばれていません';

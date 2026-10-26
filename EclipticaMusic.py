@@ -5,12 +5,13 @@ from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
 import tkinter as tk
 from tkinter import ttk,filedialog,messagebox
 from datetime import datetime
+from combat_meter import CombatMeter
 BASE=Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 USER_DIR=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else BASE
 CFG=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'EclipticaMusicCompanion'/'settings.json'
 CFG.parent.mkdir(parents=True,exist_ok=True)
 LOG=Path(os.environ.get('USERPROFILE',str(Path.home())))/'AppData/LocalLow/VRChat/VRChat'
-DEFAULT={'round':{},'waiting':{},'phase':{},'boss':{},'music':{},'fade':2.0,'volume':80,'log':'','auto':False,'fallback':{},'lobby':''}
+DEFAULT={'round':{},'waiting':{},'phase':{},'boss':{},'music':{},'fade':2.0,'volume':80,'log':'','auto':False,'fallback':{},'lobby':'','overlay':{'show':False,'name':'','alert':True,'other_alerts':False,'volume':65,'seconds':10,'opacity':92},'discovered_bosses':[]}
 state={'seq':0,'track':'','fade':2,'volume':.8,'stop':False,'player_status':'プレイヤー未接続','player_seen':0,'volume_seq':0,'fallback':''}
 lock=threading.Lock()
 allowed_media=set()
@@ -113,9 +114,105 @@ class Handler(BaseHTTPRequestHandler):
   if u.path=='/':
    b=(BASE/'player.html').read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.end_headers();self.wfile.write(b);return
   self.send_error(404)
+def play_target_tone(kind,volume=65):
+ """Windows-only, standalone PCM chime. Never blocks the GUI thread."""
+ if sys.platform!='win32' or volume<=0:return
+ def worker():
+  try:
+   import winsound,math,struct,wave,io
+   tones={'target_on':[(850,.105),(940,.105),(1030,.105),(1180,.23)],
+    'target_off':[(750,.14),(510,.21)],'target_switch':[(660,.12),(880,.18)]}[kind]
+   rate=22050;frames=[];amp=max(0,min(100,volume))/100*.38
+   for frequency,duration in tones:
+    count=int(rate*duration)
+    for i in range(count):
+     env=min(1,i/180,(count-i)/240)
+     value=int(32767*amp*max(0,env)*math.sin(math.tau*frequency*i/rate))
+     frames.append(struct.pack('<h',value))
+    frames.extend([b'\0\0']*int(rate*.025))
+   mem=io.BytesIO()
+   with wave.open(mem,'wb') as f:
+    f.setnchannels(1);f.setsampwidth(2);f.setframerate(rate);f.writeframes(b''.join(frames))
+   winsound.PlaySound(mem.getvalue(),winsound.SND_MEMORY)
+  except Exception:pass
+ threading.Thread(target=worker,daemon=True).start()
+
+class BattleHUD(tk.Toplevel):
+ """Optional compact desktop HUD (not a native SteamVR overlay)."""
+ def __init__(self,app):
+  super().__init__(app.root)
+  self.app=app;self.overrideredirect(True);self.attributes('-topmost',True)
+  self.geometry('362x310+48+75');self.configure(bg='#060d16')
+  self.start_drag=None
+  self.border=tk.Frame(self,bg='#164e55',padx=1,pady=1);self.border.pack(fill='both',expand=True)
+  content=tk.Frame(self.border,bg='#0d1721',padx=15,pady=12);content.pack(fill='both',expand=True)
+  header=tk.Frame(content,bg='#0d1721');header.pack(fill='x')
+  self.h=tk.Label(header,text='ECLIPTICA   /   BATTLE HUD',font=('Segoe UI',11,'bold'),bg='#0d1721',fg='#67eee1',anchor='w');self.h.pack(side='left',fill='x',expand=True)
+  close=tk.Label(header,text='✕',font=('Segoe UI',12,'bold'),bg='#0d1721',fg='#9bb0ba',cursor='hand2');close.pack(side='right',padx=5)
+  close.bind('<Button-1>',lambda e:self.app.hide_overlay_from_window())
+  for w in (header,self.h):
+   w.bind('<ButtonPress-1>',self.drag_start);w.bind('<B1-Motion>',self.drag)
+  tk.Frame(content,bg='#253640',height=1).pack(fill='x',pady=10)
+  self.boss_lbl=tk.Label(content,bg='#0d1721',fg='white',font=('Segoe UI',16,'bold'),anchor='w');self.boss_lbl.pack(fill='x')
+  self.target_lbl=tk.Label(content,bg='#0d1721',fg='#c3e3e4',font=('Segoe UI',11,'bold'),anchor='w');self.target_lbl.pack(fill='x',pady=(8,8))
+  cards=tk.Frame(content,bg='#0d1721');cards.pack(fill='x')
+  self.metrics={}
+  for i,(key,label) in enumerate([('dps','DPS'),('boss_damage','BOSS DMG'),('total_damage','TOTAL'),('attack_speed','HITS / s')]):
+   cell=tk.Frame(cards,bg='#152734',padx=12,pady=8);cell.grid(row=i//2,column=i%2,padx=3,pady=3,sticky='nsew');cards.columnconfigure(i%2,weight=1)
+   tk.Label(cell,text=label,font=('Segoe UI',9),bg='#152734',fg='#80a6b4',anchor='w').pack(fill='x')
+   val=tk.Label(cell,text='0',font=('Segoe UI',18,'bold'),bg='#152734',fg='#f5ffff',anchor='w');val.pack(fill='x');self.metrics[key]=val
+  self.note=tk.Label(content,text='ログから推定 / 画面上をドラッグして移動',font=('Segoe UI',9),bg='#0d1721',fg='#7896a3');self.note.pack(anchor='w',pady=(12,0))
+  self.refresh(app.meter.snapshot(),app.overlay_cfg)
+ def drag_start(self,event):self.start_drag=(event.x_root-self.winfo_x(),event.y_root-self.winfo_y())
+ def drag(self,event):
+  if self.start_drag:self.geometry('+%d+%d'%(event.x_root-self.start_drag[0],event.y_root-self.start_drag[1]))
+ def refresh(self,v,cfg):
+  if not bool(cfg.get('show')):return
+  self.attributes('-alpha',max(.3,min(1,float(cfg.get('opacity',92))/100)))
+  self.boss_lbl.config(text='BOSS  /  '+v['boss'][:28])
+  targeted=v['is_targeted'];self.target_lbl.config(text='⚠ YOU ARE TARGETED!' if targeted else 'TARGET (推定)  /  '+v['target'][:30],fg='#ff727c' if targeted else '#b2d8de')
+  for key,lbl in self.metrics.items():
+   value=v.get(key,0);lbl.config(text=('%0.1f'%value if key in ('dps','attack_speed') else '%0.0f'%value))
+  self.border.config(bg='#aa3646' if targeted else '#164e55')
+  self.note.config(text='集計イベント %d件  /  %d秒DPS  • ドラッグ移動'%(v['events_found'],v['dps_window']))
+
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.7 β');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8 β');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.build();self.root.after(350,self.update_hud_loop);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+ def _overlay_options(self):
+  defaults={'show':False,'name':'','alert':True,'other_alerts':False,'volume':65,'seconds':10,'opacity':92}
+  saved=self.cfg.get('overlay',{})
+  if isinstance(saved,dict):defaults.update({k:v for k,v in saved.items() if k in defaults})
+  try:defaults['seconds']=max(1,min(15,int(defaults['seconds'])))
+  except (ValueError,TypeError):defaults['seconds']=10
+  try:defaults['volume']=max(0,min(100,int(defaults['volume'])))
+  except (ValueError,TypeError):defaults['volume']=65
+  try:defaults['opacity']=max(30,min(100,int(defaults['opacity'])))
+  except (ValueError,TypeError):defaults['opacity']=92
+  defaults['name']=str(defaults['name'])[:90]
+  return defaults
+ def hide_overlay_from_window(self):
+  self.toggle_hud(False);self.save(quiet=True);self.revision+=1
+ def toggle_hud(self,visible):
+  self.overlay_cfg['show']=bool(visible)
+  if visible:
+   if self.hud is None or not self.hud.winfo_exists():
+    self.hud=BattleHUD(self)
+   self.hud.deiconify();self.hud.lift()
+  elif self.hud is not None and self.hud.winfo_exists():self.hud.withdraw()
+ def update_hud_loop(self):
+  for _ in range(100):
+   try:kind,value=self.combat_events.get_nowait()
+   except queue.Empty:break
+   if kind=='boss':
+    if value not in self.discovered_bosses:
+     self.discovered_bosses.add(value);self.cfg['discovered_bosses']=sorted(self.discovered_bosses);self.revision+=1
+   elif kind in ('target_on','target_off','target_switch'):
+    if self.overlay_cfg.get('alert',True) and (kind!='target_switch' or self.overlay_cfg.get('other_alerts',False)):
+     play_target_tone(kind,int(self.overlay_cfg.get('volume',65)))
+  if self.hud is not None and self.hud.winfo_exists():
+   self.hud.refresh(self.meter.snapshot(), self.overlay_cfg)
+  if self.root.winfo_exists():self.root.after(350,self.update_hud_loop)
  def build(self):
   BG='#0b1020';PANEL='#17263d';FIELD='#263650';EDGE='#304363';TEXT='#edf4ff';MUTED='#9cb0cc';ACCENT='#49e7da'
   style=ttk.Style(self.root)
@@ -391,7 +488,8 @@ class App:
  def autosave(self):
   self._save_after=None
   self.save(quiet=True)
- BOSS_CHOICES=('Kakarot', 'Nan', 'BuffNoob', 'Pride', 'Steven', 'Amaziah', 'JackedPumpkin', 'QueenVolt', 'M41D', 'Corus', 'CorusPhase2', 'Yuki', 'YukiPhase2', 'Pandora', 'Mephiel', 'MephielPhase2', 'OnyxPilot', 'NeoPilot', 'Gilgamesh', 'GilgameshPhase2', 'GilgameshPhase3', 'GoldenGrouch', 'DarkMouth')
+ OFFICIAL_BOSS_CHOICES=('Jim C. Bringer','Neo Pilot','Bravera','O-One','Pandora','Abaddon','Khepri','Mephiel','Irides','Golden Grouch','Corus','Yuki','Cone Head','Despair','M-41-D','Melgor Johnson','Amaziah',"Jacked O' Lantern",'The Black Lily','NX-Obsidian','Middleman','Steven','Kodama','The Gravetender','Vesra','Pride','Maxipuss','Darkmouth','Kakarot','NaN','Beelzebub','Buff Noob')
+ BOSS_CHOICES=('Stage_Bringer', 'JimBringer', 'FlyLord', 'Kakarot', 'Nan', 'BuffNoob', 'Pride', 'Steven', 'Amaziah', 'JackedPumpkin', 'QueenVolt', 'M41D', 'Corus', 'CorusPhase2', 'Yuki', 'YukiPhase2', 'Pandora', 'Mephiel', 'MephielPhase2', 'OnyxPilot', 'NeoPilot', 'Gilgamesh', 'GilgameshPhase2', 'GilgameshPhase3', 'GoldenGrouch', 'DarkMouth')
  DIFFICULTIES=('Primal','Penumbra','Antumbra','Umbra','Eclipse','Eye of the Eclipse')
  PHASES=('戦闘','準備','ボス','終了','休憩')
  def load_config(self):
@@ -422,6 +520,10 @@ class App:
    restored=json.loads(json.dumps(DEFAULT));restored.update(obj)
    if not isinstance(restored.get('fallback'),dict):raise ValueError('予備MP3の設定が正しくありません')
    self.cfg=restored
+   self.overlay_cfg=self._overlay_options()
+   self.meter.configure(self.overlay_cfg['name'],self.overlay_cfg['seconds'])
+   self.discovered_bosses=set(restored.get('discovered_bosses',[])) if isinstance(restored.get('discovered_bosses'),list) else set()
+   self.toggle_hud(bool(self.overlay_cfg['show']))
    self._loading_editor=True
    try:
     for (group,key),var in self.vars.items():
@@ -473,7 +575,7 @@ class App:
   self.cfg['music']=music;self.cfg['boss']=boss;self.cfg['fallback']=fallback;self.cfg['lobby']=self.lobby.get().strip()
   try:fade=max(0,min(15,float(self.fade.get())))
   except (ValueError,tk.TclError):fade=2.0
-  self.cfg.update(log=self.log.get(),fade=fade,volume=int(self.volume.get()))
+  self.cfg.update(log=self.log.get(),fade=fade,volume=int(self.volume.get()),overlay=dict(self.overlay_cfg),discovered_bosses=sorted(self.discovered_bosses))
   try:
    tmp=CFG.with_suffix('.tmp');tmp.write_text(json.dumps(self.cfg,ensure_ascii=False,indent=2),'utf-8');tmp.replace(CFG);self.status.set('設定を保存しました') if not quiet else None
   except Exception as e:messagebox.showerror('保存失敗',str(e))
@@ -553,6 +655,7 @@ class App:
   self.log.set(str(p))
   self.stop.set()
   self._watch_generation+=1
+  self.meter.reset();self.meter.configure(self.overlay_cfg['name'],self.overlay_cfg['seconds'])
   self.stop=threading.Event();self.round=0;self.boss='';self.laststage=''
   self.worker=threading.Thread(target=self.watch,args=(p,self.stop),daemon=True)
   self.worker.start();self.status.set('監視中: '+p.name)
@@ -568,12 +671,15 @@ class App:
     f.seek(max(0,p.stat().st_size-2_000_000));raw=f.read().decode('utf-8','replace')
    events=[]
    for line in raw.splitlines():
+    for transition in self.meter.ingest(line):self.combat_events.put(transition)
     if 'ECLIPTICA - now in intermission' in line:events.append(('休憩',None))
     elif 'ECLIPTICA - now in lobby' in line:events.append(('ロビー',None))
     else:
      b=re.search(r'ECLIPTICA - now fighting boss:\s*(.+?)\s+on phase:',line)
      st=re.search(r'ECLIPTICA - now in stage:\s*(.+?)\s+on phase:',line)
-     if b:events.append(('ボス',re.sub(r'\(Clone\)$','',b.group(1).strip(),flags=re.I)))
+     if b:
+      n=re.sub(r'\(Clone\)$','',b.group(1).strip(),flags=re.I)
+      self.discovered_bosses.add(n);events.append(('ボス',n))
      elif st:events.append(('戦闘',st.group(1).strip()))
    if events:
     kind,name=events[-1]
@@ -633,16 +739,30 @@ class App:
    self.phase_choice.set(phase)
    self.play_auto(phase)
  def handle_boss(self,name):
+  if name and name not in self.discovered_bosses:
+   self.discovered_bosses.add(name);self.revision+=1
   self.event_status.set('検知イベント: ボス開始 '+name)
   self.phase_choice.set('ボス')
   base=re.sub(r'\s*Phase\d+$','',name,flags=re.I).strip()
-  bosses={n.casefold():t for n,t in self.boss_map.items() if n.strip() and t.strip()}
-  # Prefer phase-specific override, then generic boss, then difficulty boss music.
-  track=bosses.get(name.casefold()) or bosses.get(base.casefold())
-  if track:
-   fallbacks={n.casefold():v for n,v in self.boss_fallback_map.items() if v.strip()}
-   fallback=fallbacks.get(name.casefold()) or fallbacks.get(base.casefold(),'')
-   self.play(track,fallback)
+  # Exact phase name has priority, then a canonical name / its known log alias.
+  def canon(v):
+   slug=re.sub(r'[^a-z0-9]','',v.casefold())
+   aliases={'nan':'nan','buffnoob':'buffnoob','jackedpumpkin':'jackedolantern',
+    'stagebringer':'jimcbringer','jimbringer':'jimcbringer',
+    'm41d':'m41d','neopilot':'neopilot','goldengrouch':'goldengrouch',
+    'darkmouth':'darkmouth'}
+   return aliases.get(slug,slug)
+  def matching_track(mapping):
+   # Do not collapse an explicitly configured phase into the generic track.
+   by_exact={k.casefold():v for k,v in mapping.items() if k.strip() and v.strip()}
+   direct=by_exact.get(name.casefold())
+   if direct:return direct
+   for wanted in (canon(base),):
+    for key,value in mapping.items():
+     if value.strip() and canon(key)==wanted:return value
+   return ''
+  track=matching_track(self.boss_map)
+  if track:self.play(track,matching_track(self.boss_fallback_map))
   else:self.play_auto('ボス')
  def drain_api(self):
   for _ in range(30):
@@ -659,14 +779,15 @@ class App:
    if group=='fallback' and var.get():fallback[k]=var.get()
   fallback.update({'boss|'+k:v for k,v in self.boss_fallback_map.items() if v})
   return {'music':music,'fallback':fallback,'boss':dict(self.boss_map),
+   'overlay':dict(self.overlay_cfg),
    'lobby':self.lobby.get(),'log':self.log.get(),'fade':self.fade.get(),
    'volume':self.volume.get(),'difficulty':self.difficulty.get(),
    'phase':self.phase_choice.get(),'difficulties':list(self.DIFFICULTIES),
-   'phases':list(self.PHASES),'boss_choices':list(self.BOSS_CHOICES),'revision':self.revision}
+   'phases':list(self.PHASES),'boss_choices':sorted(set(self.BOSS_CHOICES)|set(self.OFFICIAL_BOSS_CHOICES)|self.discovered_bosses|set(self.boss_map),key=str.casefold),'revision':self.revision}
  def api_view(self):
   return {'status':self.status.get(),'event':self.event_status.get(),
     'player':self.player_status.get(),'monitoring':bool(self.worker and self.worker.is_alive() and not self.stop.is_set()),
-    'revision':self.revision,'volume':self.volume.get()}
+    'revision':self.revision,'volume':self.volume.get(),'combat':self.meter.snapshot(),'overlay_visible':bool(self.overlay_cfg['show'])}
  def api_action(self,d):
   action=d.get('action','')
   if not isinstance(action,str):raise ValueError('不正な操作です')
@@ -674,6 +795,22 @@ class App:
    x=d.get(name,'')
    if not isinstance(x,str) or len(x)>limit:raise ValueError(name+'の文字数が不正です')
    return x.strip()
+  if action=='overlay_settings':
+   own=val('name',90)
+   try:seconds=int(d.get('seconds',10));volume=int(d.get('volume',65));opacity=int(d.get('opacity',92))
+   except (TypeError,ValueError):raise ValueError('HUDの数値設定が不正です')
+   if not 1<=seconds<=15 or not 0<=volume<=100 or not 30<=opacity<=100:raise ValueError('HUDの設定範囲外です')
+   for key in ('show','alert','other_alerts'):
+    if not isinstance(d.get(key),bool):raise ValueError('HUDのチェック項目が不正です')
+   self.overlay_cfg.update(show=d['show'],alert=d['alert'],other_alerts=d['other_alerts'],name=own,seconds=seconds,volume=volume,opacity=opacity)
+   self.meter.configure(own,seconds)
+   self.toggle_hud(d['show'])
+   self.save(quiet=True);self.revision+=1
+   self.status.set('バトルHUDの設定を保存しました')
+   return self.status.get()
+  if action=='overlay_test':
+   play_target_tone('target_on',int(self.overlay_cfg['volume']))
+   return 'ターゲット警告音をテストしました'
   if action=='start':
    self.start();return self.status.get()
   if action=='stop':self.stop_music();return self.status.get()
@@ -694,6 +831,13 @@ class App:
    self.vars[('fallback',key)].set(val('fallback'))
    self.save(quiet=True);self.revision+=1
    self.status.set('曲の設定を保存しました: '+difficulty+' / '+phase)
+   return self.status.get()
+  if action=='add_boss':
+   name=val('boss',120)
+   if not name:raise ValueError('ボス名を入力してください')
+   if name not in self.discovered_bosses:
+    self.discovered_bosses.add(name);self.save(quiet=True);self.revision+=1
+   self.status.set('ボスを一覧に追加しました: '+name)
    return self.status.get()
   if action=='set_boss':
    name=val('boss',120)
@@ -808,6 +952,7 @@ class App:
   if self.root.winfo_exists():self.root.after(1800,self.check_ui_closed)
  def close(self):
   self.stop.set();self.save(quiet=True);self.stop_music()
+  if self.hud is not None and self.hud.winfo_exists():self.hud.destroy()
   if self.player_process is not None and self.player_process.poll() is None:
    try:
     # Dedicated Edge profile only; do not terminate unrelated Edge sessions.
