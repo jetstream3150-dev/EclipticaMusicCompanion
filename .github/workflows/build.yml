@@ -1,34 +1,61 @@
-name: Build Windows App
+name: Build Windows App (v1.8.1 Lite Audit)
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
-    runs-on: windows-latest
-    permissions:
-      contents: read
+    runs-on: windows-2022
+    timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install pinned build dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install --only-binary=:all: -r requirements.txt
+          python -m pip install --only-binary=:all: pip-audit==2.10.1
 
-      - name: Build application folder
-        shell: cmd
+      - name: Audit installed direct dependencies
+        run: python -m pip_audit -r requirements.txt
+
+      - name: Verify Python sources and lite feature gates
+        shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name EclipticaMusicCompanion --collect-all yt_dlp --collect-all imageio_ffmpeg --add-data "player.html;." --add-data "unified.html;." --add-data "engine.js;." EclipticaMusic.py
+          python -m compileall -q EclipticaMusic.py combat_meter.py tools
+          python test_v18.py
+          python tools/test_lite.py
 
-      - name: Upload application folder
+      - name: Build minimal Windows folder (no downloader/FFmpeg)
+        shell: cmd
+        run: >-
+          python -m PyInstaller --noconfirm --clean --onedir --windowed
+          --noupx --name EclipticaMusicCompanion
+          --exclude-module yt_dlp --exclude-module imageio_ffmpeg
+          --add-data "player.html;." --add-data "unified.html;."
+          --add-data "engine.js;." EclipticaMusic.py
+
+      - name: Verify release contents and write SHA256 manifest
+        run: python tools/verify_release.py dist/EclipticaMusicCompanion
+
+      - name: Microsoft Defender scan (records unavailable status)
+        shell: pwsh
+        run: ./tools/windows_defender_scan.ps1 -ReleaseDir dist/EclipticaMusicCompanion
+
+      - name: Upload audited-lite distribution
         uses: actions/upload-artifact@v4
         with:
-          name: EclipticaMusicCompanion-Windows-v1.8
+          name: EclipticaMusicCompanion-Windows-v1.8.1-Lite
           path: dist/EclipticaMusicCompanion/
           if-no-files-found: error
