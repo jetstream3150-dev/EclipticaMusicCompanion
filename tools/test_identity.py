@@ -1,4 +1,5 @@
 """Local identity detection fixtures; no VRChat credentials or network access."""
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -21,6 +22,12 @@ with tempfile.TemporaryDirectory() as folder:
     assert detect_identity(base).name == '名前1'
     second = base/'output_log_2026-10-27_18-01-00.txt'
     second.write_text('2026.10.27 18:01:00 Debug - User Authenticated: 名前2 (' + UUID + ')\nLog - OnPlayerJoined 名前1\n', encoding='utf8')
+    assert detect_identity(base).name == '名前2'
+    # On Windows, two rapid writes may have the exact same filesystem mtime.
+    # The log filename date must break ties, rather than filesystem iteration order.
+    shared_mtime = max(first.stat().st_mtime, second.stat().st_mtime)
+    os.utime(first, (shared_mtime, shared_mtime))
+    os.utime(second, (shared_mtime, shared_mtime))
     assert detect_identity(base).name == '名前2'
     assert detect_identity(base,now=time.time()+13*3600).name == ''
     second.write_text('2026.10.27 Debug - OnPlayerJoined Someone Else\n',encoding='utf8')
