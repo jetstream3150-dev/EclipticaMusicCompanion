@@ -60,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
   self.send_error(404)
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.5 β');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.6.1 β');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.build();root.protocol('WM_DELETE_WINDOW',self.close);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def build(self):
   BG='#0b1020';PANEL='#17263d';FIELD='#263650';EDGE='#304363';TEXT='#edf4ff';MUTED='#9cb0cc';ACCENT='#49e7da'
   style=ttk.Style(self.root)
@@ -84,6 +84,9 @@ class App:
   style.map('TNotebook.Tab',background=[('selected',PANEL)],foreground=[('selected',ACCENT)])
   style.configure('Horizontal.TScale',background=BG,troughcolor=FIELD)
   style.configure('TScrollbar',background=FIELD,troughcolor=BG)
+  style.configure('TLabelframe',background=BG,foreground=TEXT)
+  style.configure('TLabelframe.Label',background=BG,foreground=ACCENT)
+  style.configure('TCheckbutton',background=BG,foreground=TEXT)
   self.root.option_add('*TCombobox*Listbox.background',FIELD)
   self.root.option_add('*TCombobox*Listbox.foreground',TEXT)
   self.root.option_add('*TCombobox*Listbox.selectBackground','#34516d')
@@ -101,8 +104,17 @@ class App:
   self._save_after=None;self._loading_editor=False;self._saving=False;self._watch_generation=0
   outer=ttk.Frame(self.root,padding=16);outer.pack(fill='both',expand=True)
   ttk.Label(outer,text='◈  ECLIPTICA',style='Title.TLabel').pack(anchor='w')
-  ttk.Label(outer,text='MUSIC COMPANION   •   v1.5',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
+  ttk.Label(outer,text='MUSIC COMPANION   •   v1.6.1',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
   self.tabs=ttk.Notebook(outer);self.tabs.pack(fill='both',expand=True)
+  # A shared feedback bar remains visible regardless of the selected tab.
+  # The message is derived from the existing status variable so every existing
+  # command benefits without replacing individual button callbacks.
+  self.feedback_text=tk.StringVar(value='● 準備完了 — ボタン操作の結果がここに表示されます')
+  self.feedback_color=tk.StringVar(value='#49e7da')
+  self._feedback_timer=None
+  self._feedback_last=''
+  self.status.trace_add('write',self._on_status_change)
+
   home=ttk.Frame(self.tabs,padding=16);self.tabs.add(home,text='🏠 ホーム')
   ttk.Label(home,text='ゲームに合わせて音楽を流そう！',style='Heading.TLabel').pack(anchor='center',pady=(6,15))
   ttk.Button(home,text='▶  音楽をスタート！',style='Action.TButton',command=self.quick_start).pack(fill='x',ipady=8)
@@ -151,6 +163,7 @@ class App:
   self.edit_phase.trace_add('write',lambda *_:self.load_music_editor())
   self.music_editor.trace_add('write',lambda *_:self.update_music_editor())
   self.fallback_editor.trace_add('write',lambda *_:self.update_music_editor())
+  self.add_mp3_import_panel(music,lambda:self.music_editor)
   self.load_music_editor()
   boss=ttk.Frame(self.tabs,padding=16);self.tabs.add(boss,text='👑 ボスの曲')
   ttk.Label(boss,text='① ボスを選ぶ',style='Heading.TLabel').pack(anchor='w',pady=(3,8))
@@ -171,6 +184,7 @@ class App:
   ttk.Button(controls,text='■ 再生を停止',command=self.stop_music).pack(side='left',padx=8)
   ttk.Button(controls,text='💾 設定を保存',command=self.save).pack(side='left',padx=8)
   ttk.Label(boss,text='自動保存対応。空欄なら難易度別のボスBGMが流れます。',style='Muted.TLabel',wraplength=680).pack(anchor='w')
+  self.add_mp3_import_panel(boss,lambda:self.boss_track)
   self.boss_track.trace_add('write',lambda *_:self.update_boss_editor())
   self.boss_fallback.trace_add('write',lambda *_:self.update_boss_editor())
   self.boss_name_changed()
@@ -193,10 +207,101 @@ class App:
   ttk.Button(rr,text='バックアップ',command=self.export_config).pack(side='left')
   ttk.Button(rr,text='復元',command=self.import_config).pack(side='left',padx=8)
   ttk.Button(rr,text='保存先を開く',command=self.open_config_dir).pack(side='left')
+  self.add_mp3_import_panel(advanced,lambda:self.lobby)
   self.lobby.trace_add('write',lambda *_:self.schedule_save())
   self.log.trace_add('write',lambda *_:self.schedule_save())
   self.fade.trace_add('write',lambda *_:self.schedule_save())
   self.volume.trace_add('write',lambda *_:self.schedule_save())
+  self.feedback_frame=tk.Frame(outer,bg='#17263d',highlightbackground='#304363',highlightthickness=1)
+  self.feedback_frame.pack(fill='x',pady=(10,0))
+  self.feedback_icon=tk.Label(self.feedback_frame,text='✓',bg='#17263d',fg='#49e7da',font=('Segoe UI',15,'bold'))
+  self.feedback_icon.pack(side='left',padx=(12,6),pady=9)
+  self.feedback_label=tk.Label(self.feedback_frame,textvariable=self.feedback_text,bg='#17263d',fg='#edf4ff',font=('Segoe UI',11,'bold'),anchor='w',justify='left',wraplength=700)
+  self.feedback_label.pack(side='left',fill='x',expand=True,pady=9)
+  self.feedback_frame.bind('<Configure>',lambda e:self.feedback_label.configure(wraplength=max(180,e.width-85)))
+ def _on_status_change(self,*_):
+  message=self.status.get().strip()
+  if not message:return
+  # Keep feedback concise and avoid claiming that the player confirmed an action.
+  is_error=any(w in message for w in ('失敗','エラー','見つかりません','未設定','できません','開けません'))
+  is_wait=any(w in message for w in ('監視中','起動しました','切替指示','指示しました','変換しています'))
+  icon='!' if is_error else ('…' if is_wait else '✓')
+  self.feedback_text.set(message)
+  self.feedback_icon.configure(text=icon,fg='#ffb86b' if is_error else '#49e7da')
+  if self._feedback_timer is not None:
+   self.root.after_cancel(self._feedback_timer)
+  self._feedback_timer=self.root.after(6500,self._reset_feedback)
+ def _reset_feedback(self):
+  self._feedback_timer=None
+  self.feedback_text.set('● 準備完了 — 操作するとここに結果が表示されます')
+  self.feedback_icon.configure(text='✓',fg='#49e7da')
+
+ def add_mp3_import_panel(self,parent,target_var):
+  section=ttk.LabelFrame(parent,text='🎵 許可されたYouTube音源をMP3として保存',padding=10)
+  section.pack(fill='x',pady=(20,8))
+  ttk.Label(section,text='自分が権利を持つ、またはダウンロードの許可を得た動画のみ使用してください。',style='Muted.TLabel',wraplength=700).pack(anchor='w')
+  url=tk.StringVar()
+  row=ttk.Frame(section);row.pack(fill='x',pady=(8,5))
+  ttk.Entry(row,textvariable=url).pack(side='left',fill='x',expand=True,padx=(0,6))
+  ttk.Button(row,text='URLを貼り付け',command=lambda:self.paste_url(url)).pack(side='left')
+  authorized=tk.BooleanVar(value=False)
+  ttk.Checkbutton(section,text='この動画のダウンロード・MP3変換が許可されていることを確認しました',variable=authorized).pack(anchor='w',pady=5)
+  status=tk.StringVar(value='保存先：アプリの設定フォルダ内の DownloadedMusic')
+  ttk.Label(section,textvariable=status,style='Muted.TLabel',wraplength=700).pack(fill='x',pady=(3,5))
+  btn=ttk.Button(section,text='⬇ MP3に保存して、この曲に登録')
+  btn.configure(command=lambda:self.download_authorized_mp3(url.get(),authorized.get(),target_var,status,btn))
+  btn.pack(anchor='w')
+ def paste_url(self,var):
+  try:var.set(self.root.clipboard_get().strip())
+  except tk.TclError:self.status.set('クリップボードにテキストがありません')
+  else:self.status.set('URLを貼り付けました')
+ def download_authorized_mp3(self,url,authorized,target_var,status,button):
+  url=url.strip()
+  if not authorized:
+   messagebox.showwarning('利用許可を確認','ダウンロードが許可された音源であることを確認し、チェックしてください。');return
+  parsed=urlparse(url)
+  host=(parsed.hostname or '').lower()
+  if parsed.scheme!='https' or host not in ('youtube.com','www.youtube.com','m.youtube.com','music.youtube.com','youtu.be'):
+   messagebox.showwarning('URLが正しくありません','YouTubeのhttps://で始まるURLを貼り付けてください。');return
+  try:
+   import yt_dlp,imageio_ffmpeg
+  except ImportError:
+   messagebox.showerror('必要な機能がありません','MP3変換用ライブラリが見つかりません。v1.6のGitHub Actionsで再ビルドしてください。');return
+  button.configure(state='disabled');status.set('動画を確認しています…')
+  destination=CFG.parent/'DownloadedMusic'
+  destination.mkdir(parents=True,exist_ok=True)
+  def worker():
+   try:
+    ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
+    if not Path(ffmpeg).is_file():raise RuntimeError('FFmpegが見つかりません')
+    opts={'format':'bestaudio/best','noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':20,'retries':2,
+          'outtmpl':str(destination/'%(id)s.%(ext)s'),
+          'ffmpeg_location':ffmpeg,
+          'postprocessors':[{'key':'FFmpegExtractAudio','preferredcodec':'mp3','preferredquality':'192'}]}
+    with yt_dlp.YoutubeDL(opts) as ydl:
+     info=ydl.extract_info(url,download=False)
+     if not info or info.get('_type')=='playlist':raise ValueError('単一の動画URLを指定してください')
+     if (info.get('duration') or 0)>7200:raise ValueError('2時間を超える動画は対象外です')
+     video_id=str(info.get('id',''))
+     if not re.fullmatch(r'[a-zA-Z0-9_-]{6,32}',video_id):raise ValueError('動画IDを取得できません')
+     mp3=destination/(video_id+'.mp3')
+     if not mp3.is_file():
+      self.root.after(0,lambda:status.set('MP3に変換しています…'))
+      ydl.download([url])
+     if not mp3.is_file() or mp3.stat().st_size<1000:raise RuntimeError('MP3ファイルの作成に失敗しました')
+    def done():
+     target_var().set(str(mp3));self.save(quiet=True)
+     status.set('保存・曲の登録が完了しました: '+mp3.name)
+     self.status.set('MP3を登録しました。試聴ボタンで確認できます')
+     button.configure(state='normal')
+    self.root.after(0,done)
+   except Exception as exc:
+    msg=str(exc).splitlines()[0][:220]
+    def failed():
+     status.set('変換できませんでした: '+msg)
+     button.configure(state='normal')
+    self.root.after(0,failed)
+  threading.Thread(target=worker,daemon=True).start()
  def load_music_editor(self):
   self._loading_editor=True
   key=self.edit_diff.get()+'|'+self.edit_phase.get()
@@ -250,7 +355,7 @@ class App:
   self.save()
   target=filedialog.asksaveasfilename(title='設定をバックアップ',defaultextension='.json',initialfile='EclipticaMusicCompanion_backup.json',filetypes=[('JSON','*.json')])
   if target:
-   try:shutil.copy2(CFG,target);messagebox.showinfo('完了','設定を書き出しました。')
+   try:shutil.copy2(CFG,target);self.status.set('バックアップを保存しました');messagebox.showinfo('完了','設定を書き出しました。')
    except Exception as e:messagebox.showerror('失敗',str(e))
  def import_config(self):
   source=filedialog.askopenfilename(title='設定を復元',filetypes=[('JSON','*.json')])
@@ -263,7 +368,7 @@ class App:
    messagebox.showinfo('復元完了','設定を復元しました。アプリを終了して起動し直してください。')
   except Exception as e:messagebox.showerror('復元失敗',str(e))
  def open_config_dir(self):
-  try:os.startfile(str(CFG.parent))
+  try:os.startfile(str(CFG.parent));self.status.set('設定の保存先を開きました')
   except Exception as e:messagebox.showerror('開けませんでした',str(e))
  def play_selected(self):
   key=self.difficulty.get()+'|'+self.phase_choice.get()
@@ -279,7 +384,9 @@ class App:
   else:self.stop_music();self.status.set(f'{difficulty} / {phase} の曲は未設定のため停止しました')
  def pick(self,v):
   p=filedialog.askopenfilename(filetypes=[('音楽','*.mp3 *.wav *.ogg *.m4a')]);
-  if p:v.set(p)
+  if p:
+   v.set(p)
+   self.status.set('音楽ファイルを選びました。自動保存されます')
  def save(self,quiet=False):
   if self._saving:return
   self._saving=True
@@ -358,10 +465,10 @@ class App:
   try:fade=max(0,min(15,float(self.fade.get())))
   except (ValueError,tk.TclError):fade=2.0
   with lock:state.update(seq=state['seq']+1,track=track,fade=fade,volume=max(0,min(100,int(self.volume.get())))/100,stop=False,fallback=fallback)
-  self.status.set('切替指示: '+track[:65])
+  self.status.set('▶ 再生を指示しました: '+track[:65])
  def stop_music(self):
   with lock:state.update(seq=state['seq']+1,stop=True)
-  self.status.set('再生停止を指示しました')
+  self.status.set('■ 停止を指示しました（プレイヤーに反映されます）')
  def auto_start(self):
   if self.cfg.get('auto',True):self.start()
  def start(self):
@@ -406,7 +513,7 @@ class App:
   except (OSError,UnicodeError) as e:self.status.set('途中参加の状態確認に失敗: '+str(e))
  def stop_watch(self):
   self._watch_generation+=1
-  self.stop.set();self.status.set('監視停止')
+  self.stop.set();self.status.set('■ 自動切り替えを停止しました')
  def watch(self,p,signal):
   # Start at EOF: old events must not play when the app starts mid-game.
   # Reopen new VRChat logs automatically when VRChat restarts.
