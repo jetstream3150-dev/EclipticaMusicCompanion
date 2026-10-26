@@ -32,6 +32,11 @@ with tempfile.TemporaryDirectory() as folder:
     assert detect_identity(base,now=time.time()+13*3600).name == ''
     second.write_text('2026.10.27 Debug - OnPlayerJoined Someone Else\n',encoding='utf8')
     assert detect_identity(base).name == ''
+    # Regression: touching the *older* log must not override the newer session.
+    # This was the cause of the Windows Actions test's line-34 AssertionError.
+    first.write_text('2026.10.26 Debug - User Authenticated: OLD (' + UUID + ')\n', encoding='utf8')
+    os.utime(first, (time.time() + 3, time.time() + 3))
+    assert detect_identity(base).name == ''
     # In large logs, the authenticator event can be early or near the end.
     second.write_bytes(('2026.10.27 18:01:00 Debug - User Authenticated: 名前2 (' + UUID + ')\n').encode('utf8')+b'X'*6_100_000)
     assert read_authenticated_name(second) == '名前2'

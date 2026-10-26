@@ -16,6 +16,11 @@ from typing import NamedTuple
 # Some releases add a [Behaviour] prefix.
 AUTH_EVENT = re.compile(r'(?:^|\s+-\s+|\[Behaviour\]\s+)User Authenticated:\s*(.+?)\s*$', re.I)
 USER_ID_SUFFIX = re.compile(r'\s+\(usr_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\)\s*$', re.I)
+# VRChat creates output_log_YYYY-MM-DD_HH-MM-SS.txt on startup. A log's
+# filesystem mtime can change later (or have coarse resolution on Windows).
+# Order sessions by the timestamp embedded in their filenames, not solely by
+# mtime; never fall back to an older session's authenticated name.
+LOG_FILENAME = re.compile(r'^output_log_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.txt$', re.I)
 
 class IdentityResult(NamedTuple):
     name: str
@@ -63,11 +68,17 @@ def detect_identity(log_dir: Path, *, now: float | None = None,
     """Find the current local identity, or fail closed with an explanation."""
     now = time.time() if now is None else now
     try:
-        # Some Windows filesystems can report identical modification times for
-        # logs written in quick succession. VRChat log filenames include their
-        # creation timestamp, so use that as a deterministic tie-breaker.
+        def session_sort_key(path: Path):
+            match = LOG_FILENAME.fullmatch(path.name)
+            mtime = path.stat().st_mtime_ns
+            if match:
+                # Dates and times are zero-padded, so lexical sorting preserves
+                # chronological order. The filesystem mtime is only a tie-breaker.
+                return (1, match.group(1), match.group(2), mtime, path.name)
+            return (0, '', '', mtime, path.name)
+
         logs = sorted(log_dir.glob('output_log_*.txt'),
-                      key=lambda p: (p.stat().st_mtime_ns, p.name), reverse=True)
+                      key=session_sort_key, reverse=True)
     except OSError:
         logs = []
     if not logs:
