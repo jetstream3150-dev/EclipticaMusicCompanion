@@ -24,11 +24,11 @@ jobs:
       - name: Build application folder
         shell: cmd
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name EclipticaMusicCompanion --add-data "player.html;." EclipticaMusic.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name EclipticaMusicCompanion --collect-all yt_dlp --collect-all imageio_ffmpeg --add-data "player.html;." EclipticaMusic.py
 
       - name: Upload application folder
         uses: actions/upload-artifact@v4
         with:
-          name: EclipticaMusicCompanion-Windows-v1.5
+          name: EclipticaMusicCompanion-Windows-v1.6
           path: dist/EclipticaMusicCompanion/
           if-no-files-found: error
