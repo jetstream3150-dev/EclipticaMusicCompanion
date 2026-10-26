@@ -893,6 +893,21 @@ class App:
    except Exception:pass
   self.root.destroy()
 if __name__=='__main__':
+ # PyInstaller post-build health check: run without opening the UI or Edge.
+ # This catches missing Tcl/Tk assets *before* GitHub Actions publishes the EXE.
+ if '--tk-self-test' in sys.argv:
+  try:
+   interpreter=tk.Tcl()  # Loads Tcl's init.tcl, without creating a desktop window.
+   if not interpreter.eval('info patchlevel'):
+    raise RuntimeError('Tcl runtime did not initialize')
+   if getattr(sys,'frozen',False):
+    frozen_dir=Path(sys._MEIPASS)
+    for needed in ('_tcl_data/init.tcl','_tk_data/tk.tcl'):
+     if not (frozen_dir/needed).is_file():
+      raise FileNotFoundError('Missing bundled Tcl/Tk data: '+needed)
+  except Exception:
+   sys.exit(87)
+  sys.exit(0)
  if sys.platform=='win32':
   import ctypes
   mutex=ctypes.windll.kernel32.CreateMutexW(None,False,'Local\\EclipticaMusicCompanionSingleWindow')
