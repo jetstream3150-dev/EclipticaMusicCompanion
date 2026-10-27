@@ -72,23 +72,13 @@ jobs:
           node tools/test_party_client.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build Windows folder with complete Tcl Tk runtime
+      - name: Build Windows folder with Tcl Tk runtime
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # tkinter's standard PyInstaller hook usually handles these directories,
-          # but we add both explicitly to prevent missing init.tcl / tk.tcl.
+          # Current Windows Tcl/Tk 9 embeds its libraries in the DLLs via zipfs.
+          # Older Python installations expose ordinary Tcl and Tk directories.
           $tclDir = (& python -c "import tkinter as tk; print(tk.Tcl().eval('info library'))").Trim()
-          $tkVersion = (& python -c "import tkinter as tk; print(tk.TkVersion)").Trim()
-          $tkDir = Join-Path (Split-Path -Parent $tclDir) ("tk" + $tkVersion)
-          if (-not (Test-Path (Join-Path $tclDir 'init.tcl'))) {
-            throw "Cannot find Tcl init.tcl in $tclDir"
-          }
-          if (-not (Test-Path (Join-Path $tkDir 'tk.tcl'))) {
-            throw "Cannot find Tk tk.tcl in $tkDir"
-          }
-          Write-Host "Bundling Tcl from: $tclDir"
-          Write-Host "Bundling Tk  from: $tkDir"
           $pyiArgs = @(
             '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir', '--windowed',
             '--noupx', '--name', 'EclipticaMusicCompanion',
@@ -97,11 +87,20 @@ jobs:
             '--add-data', 'engine.js;.',
             '--add-data', 'party.js;.',
             '--add-data', 'boss_weakness_data.txt;.',
-            '--add-data', 'LICENSE_EclipticaHUD-C.txt;.',
-            '--add-data', ($tclDir + ';_tcl_data'),
-            '--add-data', ($tkDir + ';_tk_data'),
-            'EclipticaMusic.py'
+            '--add-data', 'LICENSE_EclipticaHUD-C.txt;.'
           )
+          if ($tclDir.StartsWith('//zipfs:/')) {
+            # PyInstaller 6.22's tkinter hook collects the Tcl/Tk DLLs; the
+            # library scripts live inside those DLLs, not in filesystem paths.
+            Write-Host "Tcl/Tk embedded library: $tclDir"
+          } else {
+            $tkVersion = (& python -c "import tkinter as tk; print(tk.TkVersion)").Trim()
+            $tkDir = Join-Path (Split-Path -Parent $tclDir) ("tk" + $tkVersion)
+            if (-not (Test-Path (Join-Path $tclDir 'init.tcl'))) { throw "Cannot find Tcl init.tcl in $tclDir" }
+            if (-not (Test-Path (Join-Path $tkDir 'tk.tcl'))) { throw "Cannot find Tk tk.tcl in $tkDir" }
+            $pyiArgs += @('--add-data', ($tclDir + ';_tcl_data'), '--add-data', ($tkDir + ';_tk_data'))
+          }
+          $pyiArgs += 'EclipticaMusic.py'
           & python @pyiArgs
           if ($LASTEXITCODE -ne 0) { throw "PyInstaller exited with $LASTEXITCODE" }
 
@@ -111,15 +110,21 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $root = 'dist/EclipticaMusicCompanion'
           $assets = @(
-            '_internal/_tcl_data/init.tcl',
-            '_internal/_tk_data/tk.tcl',
             '_internal/_tkinter.pyd',
-            '_internal/tcl86t.dll',
-            '_internal/tk86t.dll'
+            '_internal/python314.dll'
           )
           foreach ($asset in $assets) {
             $path = Join-Path $root $asset
             if (-not (Test-Path $path)) { throw "Missing Tcl/Tk runtime asset: $path" }
+          }
+          $tcl9 = (Get-ChildItem (Join-Path $root '_internal') -Filter 'tcl9*.dll' |
+            Where-Object { $_.Name -notlike 'tcl9tk*' } | Select-Object -First 1)
+          $tk9 = Get-ChildItem (Join-Path $root '_internal') -Filter 'tcl9tk*.dll' | Select-Object -First 1
+          if (-not ($tcl9 -and $tk9)) {
+            foreach ($asset in @('_internal/_tcl_data/init.tcl', '_internal/_tk_data/tk.tcl',
+                                 '_internal/tcl86t.dll', '_internal/tk86t.dll')) {
+              if (-not (Test-Path (Join-Path $root $asset))) { throw "Missing Tcl/Tk runtime asset: $asset" }
+            }
           }
           # A headless option in EclipticaMusic.py initializes Tcl in the frozen EXE.
           # It does not start the browser, the HUD, or the background server.
