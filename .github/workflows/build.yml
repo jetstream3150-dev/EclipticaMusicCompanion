@@ -87,10 +87,17 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 10
     steps:
+      - name: Check out the diagnostic script
+        uses: actions/checkout@v5
+        with:
+          path: inspector
+          persist-credentials: false
+
       - name: Check out the exact build 34 source commit
         uses: actions/checkout@v5
         with:
           ref: 5b7876c82bdf7612963c1eb3022bf49cc5d98e29
+          path: app
           persist-credentials: false
 
       - name: Set up the same Python version as build 34
@@ -100,47 +107,7 @@ jobs:
 
       - name: Compare independently compiled application code with build 34
         shell: bash
+        working-directory: app
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import hashlib
-          import marshal
-          from pathlib import Path
-          import sys
-          import types
-
-          if sys.version_info[:3] != (3, 14, 10):
-              raise RuntimeError('Unexpected Python version')
-
-          # PyInstaller 6.22.3 recursively replaces co_filename in code objects
-          # before writing both its CArchive scripts and PYZ modules.
-          def anonymize(code, name):
-              constants = tuple(
-                  anonymize(value, name) if isinstance(value, types.CodeType) else value
-                  for value in code.co_consts
-              )
-              return code.replace(co_consts=constants, co_filename=name)
-
-          # Hashes were independently extracted without running the build 34 EXE.
-          expected = {
-              'EclipticaMusic': '730afed7d2540cbc9c4172957c1022fdc54d620925718f64822eecb27f2266ff',
-              'combat_meter': '5e51e6f28bdebeeb9a2e5d827a42a8f7ea8927f0cb9700395147ca542a54c569',
-              'vrchat_identity': 'a8e10bcf20569ce6ea54c8ca5ff33ed243125f90d36dcc8495f0206e3227df05',
-              'boss_weakness': 'e107a1d5367a4fa552eee73e891e8472a257ddce392dc4fb04ad2f14db810774',
-              'alert_sound': '125e88d4df1e51b74260d2eac427ed01620e0a9fec96404e0fddad8bb66714a5',
-          }
-          mismatch = []
-          for module, digest in expected.items():
-              filename = module + '.py'
-              source = Path(filename).read_bytes()
-              code = compile(source, str(Path(filename).resolve()), 'exec', optimize=0)
-              code = anonymize(code, filename)
-              actual = hashlib.sha256(marshal.dumps(code)).hexdigest()
-              print(module, 'compiled:', actual, 'build 34:', digest)
-              if actual != digest:
-                  mismatch.append(module)
-          if mismatch:
-              raise RuntimeError('Bytecode hashes differ; investigate compilation settings: ' + ', '.join(mismatch))
-          print('PASS: five application modules match the independently compiled sources.')
-          print('LIMITATION: this does not validate third-party binaries or prove the distribution is safe.')
-          PY
+          python ../inspector/.github/forensics/marshalcompare.py sources
