@@ -24,7 +24,7 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           python - <<'PY'
-          import json, os, urllib.parse, urllib.request
+          import json, os, urllib.error, urllib.parse, urllib.request
 
           url = os.environ.get("DISCORD_WEBHOOK_URL", "")
           parsed = urllib.parse.urlsplit(url)
@@ -42,11 +42,15 @@ jobs:
           if not link.startswith("https://github.com/jetstream3150-dev/EclipticaMusicCompanion/releases/tag/"):
               raise SystemExit("Invalid release URL")
           message = {"content": f"📢 Ecliptica Music Companion のリリース\n{title}\n{link}", "allowed_mentions": {"parse": []}}
-          request = urllib.request.Request(url, json.dumps(message, ensure_ascii=False).encode("utf-8"), {"Content-Type": "application/json"}, method="POST")
+          request = urllib.request.Request(url, json.dumps(message, ensure_ascii=False).encode("utf-8"), {"Content-Type": "application/json", "User-Agent": "DiscordBot (https://github.com/jetstream3150-dev/EclipticaMusicCompanion, 1.0)"}, method="POST")
           try:
               with urllib.request.urlopen(request, timeout=15) as response:
                   if response.status not in (200, 204):
                       raise RuntimeError("Discord notification failed")
+          except urllib.error.HTTPError as error:
+              raise SystemExit(f"Discord webhook returned HTTP {error.code}; check webhook settings.")
+          except urllib.error.URLError:
+              raise SystemExit("Discord webhook connection failed; check network availability.")
           except Exception:
-              raise SystemExit("Discord notification failed. Check webhook settings.")
+              raise SystemExit("Discord notification failed; check webhook settings.")
           PY
