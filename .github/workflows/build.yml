@@ -111,3 +111,10 @@ jobs:
         run: |
           set -euo pipefail
           python ../inspector/.github/forensics/marshalcompare.py sources
+
+      - name: Compare bundled runtime files with official Python
+        shell: bash
+        working-directory: app
+        run: |
+          set -euo pipefail
+          python ../inspector/.github/forensics/compare_native.py
