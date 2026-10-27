@@ -67,6 +67,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_party_hud
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_tcl_runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check party.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tools/test_party_client.js
@@ -128,9 +130,11 @@ jobs:
           }
           # A headless option in EclipticaMusic.py initializes Tcl in the frozen EXE.
           # It does not start the browser, the HUD, or the background server.
+          $env:ECLIPTICA_TK_SELF_TEST_REPORT = Join-Path $env:RUNNER_TEMP 'ecliptica-tk-test-error.txt'
           $exe = (Resolve-Path (Join-Path $root 'EclipticaMusicCompanion.exe')).Path
           $probe = Start-Process -FilePath $exe -ArgumentList '--tk-self-test' -Wait -PassThru
           if ($probe.ExitCode -ne 0) {
+            if (Test-Path $env:ECLIPTICA_TK_SELF_TEST_REPORT) { Get-Content $env:ECLIPTICA_TK_SELF_TEST_REPORT }
             throw "Frozen Tcl/Tk startup smoke test failed: exit code $($probe.ExitCode)"
           }
           Write-Host 'PASS: bundled Tcl/Tk libraries and frozen executable startup'

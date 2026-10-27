@@ -3,6 +3,7 @@ from pathlib import Path
 from urllib.parse import urlparse,parse_qs,unquote
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
 import tkinter as tk
+import zipfile
 from tkinter import ttk,filedialog,messagebox
 from datetime import datetime
 from combat_meter import CombatMeter
@@ -117,6 +118,25 @@ class Handler(BaseHTTPRequestHandler):
   if u.path=='/':
    b=(BASE/'player.html').read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.end_headers();self.wfile.write(b);return
   self.send_error(404)
+
+def verify_frozen_tk_assets(interpreter,frozen_dir):
+ """Check either Tcl/Tk 8 filesystem scripts or Tcl/Tk 9 DLL-embedded scripts."""
+ frozen_dir=Path(frozen_dir)
+ if interpreter.eval('info library').startswith('//zipfs:/'):
+  for pattern,required in (('tcl9*.dll','tcl_library/init.tcl'),('tcl9tk*.dll','tk_library/tk.tcl')):
+   found=False
+   for dll in frozen_dir.glob(pattern):
+    try:
+     with zipfile.ZipFile(dll) as archive:
+      found=any(name.endswith(required) for name in archive.namelist())
+    except (OSError,zipfile.BadZipFile):continue
+    if found:break
+   if not found:raise FileNotFoundError('Missing embedded Tcl/Tk data: '+required)
+ else:
+  for needed in ('_tcl_data/init.tcl','_tk_data/tk.tcl'):
+   if not (frozen_dir/needed).is_file():
+    raise FileNotFoundError('Missing bundled Tcl/Tk data: '+needed)
+
 def play_target_tone(kind,volume=65,filename=''):
  """Windows-only, standalone PCM chime. Never blocks the GUI thread."""
  if sys.platform!='win32' or volume<=0:return
@@ -1005,11 +1025,12 @@ if __name__=='__main__':
    if not interpreter.eval('info patchlevel'):
     raise RuntimeError('Tcl runtime did not initialize')
    if getattr(sys,'frozen',False):
-    frozen_dir=Path(sys._MEIPASS)
-    for needed in ('_tcl_data/init.tcl','_tk_data/tk.tcl'):
-     if not (frozen_dir/needed).is_file():
-      raise FileNotFoundError('Missing bundled Tcl/Tk data: '+needed)
-  except Exception:
+    verify_frozen_tk_assets(interpreter,Path(sys._MEIPASS))
+  except Exception as exc:
+   report=os.environ.get('ECLIPTICA_TK_SELF_TEST_REPORT')
+   if report:
+    try:Path(report).write_text(type(exc).__name__+': '+str(exc),encoding='utf-8')
+    except OSError:pass
    sys.exit(87)
   sys.exit(0)
  if '--gui-self-test' in sys.argv:
