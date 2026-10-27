@@ -36,7 +36,8 @@ def verify(root):
                         'bytes': file.stat().st_size,
                         'sha256': hashlib.sha256(file.read_bytes()).hexdigest()})
     required = {'EclipticaMusicCompanion.exe', '_internal/unified.html',
-                '_internal/player.html', '_internal/engine.js'}
+                '_internal/player.html', '_internal/engine.js',
+                '_internal/boss_weakness_data.txt', '_internal/LICENSE_EclipticaHUD-C.txt'}
     found = {e['path'] for e in entries}
     missing = required - found
     if missing:

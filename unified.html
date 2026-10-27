@@ -78,6 +78,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
    <div><label for="hud-opacity">HUD不透明度（30〜100%）</label><input id="hud-opacity" type="number" min="30" max="100" value="92"></div></div>
    <label class="check"><input id="hud-alert" type="checkbox" checked>自分が狙われた時の警告音を鳴らす</label>
    <label class="check"><input id="hud-other-alert" type="checkbox">他人同士のターゲット変更も通知する</label>
+   <label class="check"><input id="hud-weakness" type="checkbox" checked>HUDにボスの弱点・耐性を表示する</label>
    <label for="hud-volume">警告音量（BGMとは別） <span id="hud-volume-label">65</span>%</label><input id="hud-volume" type="range" min="0" max="100" value="65">
    <div class="btns" style="margin-top:17px"><button class="btn primary" id="hud-save">✓ HUDの設定を保存</button><button class="btn" id="hud-test">♪ 警告音を試す</button></div>
    <div class="hint">BGMプレイヤーは1画面のままです。HUD表示をONにしたときだけ、ゲームに重なる小窓が出ます。HUDの上端をドラッグして移動できます。</div>
@@ -87,6 +88,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
    <div><div class="smallcap">DPS</div><strong id="hud-current-dps">0.0</strong></div><div><div class="smallcap">BOSS DAMAGE</div><strong id="hud-current-damage">0</strong></div></div>
    <p class="muted" id="hud-observation">ログの解析を待っています。</p>
   </div>
+  <div class="card"><div class="cardh">ボスの弱点・耐性 <small>参考情報</small></div><p id="hud-boss-weakness" class="muted">ボスの検出を待っています。</p><p class="muted">データに形態別の記載がない場合は共通情報を表示します。ゲームの更新などにより実際と異なる場合があります。</p></div>
   <div class="card"><div class="cardh">利用前の注意</div><p class="muted">VRChatの設定 → デバッグ → ログ出力を「完全」にしてください。ログの形式はワールド更新によって変わるため、現時点のDPS・ターゲット検知は試験的です。ログに該当イベントが出ていないと0や未検出になります。ターゲットは推定であり、戦闘中の安全を保証しません。</p><p class="muted">このHUDはWindowsのデスクトップ用です。SteamVRのヘッドセット内表示には未対応。フルスクリーン排他モードでは表示されないことがあります。</p></div>
  </section>
  <section class="panel" id="other">
@@ -125,8 +127,8 @@ function fillBossDropdown(names,custom){
  if(previous&&values.includes(previous))box.value=previous;
  $('boss-count').textContent=values.length+' 種類（検出したボスを含む）';
 }
-function loadHudFields(o){$('hud-show').checked=!!o.show;$('hud-auto-name').checked=o.auto_name!==false;$('hud-name').readOnly=$('hud-auto-name').checked;$('hud-name').placeholder=$('hud-auto-name').checked?'VRChatから取得中…':'自分のVRChat表示名を入力';$('hud-detect-name').disabled=!$('hud-auto-name').checked;$('hud-name').value=o.name||'';$('hud-seconds').value=o.seconds||10;$('hud-opacity').value=o.opacity||92;$('hud-alert').checked=o.alert!==false;$('hud-other-alert').checked=!!o.other_alerts;$('hud-volume').value=o.volume??65;$('hud-volume-label').textContent=$('hud-volume').value;}
-function hudPayload(){return{show:$('hud-show').checked,auto_name:$('hud-auto-name').checked,name:$('hud-name').value.trim(),seconds:parseInt($('hud-seconds').value),opacity:parseInt($('hud-opacity').value),alert:$('hud-alert').checked,other_alerts:$('hud-other-alert').checked,volume:parseInt($('hud-volume').value)}}
+function loadHudFields(o){$('hud-show').checked=!!o.show;$('hud-auto-name').checked=o.auto_name!==false;$('hud-name').readOnly=$('hud-auto-name').checked;$('hud-name').placeholder=$('hud-auto-name').checked?'VRChatから取得中…':'自分のVRChat表示名を入力';$('hud-detect-name').disabled=!$('hud-auto-name').checked;$('hud-name').value=o.name||'';$('hud-seconds').value=o.seconds||10;$('hud-opacity').value=o.opacity||92;$('hud-alert').checked=o.alert!==false;$('hud-other-alert').checked=!!o.other_alerts;$('hud-weakness').checked=o.show_weakness!==false;$('hud-volume').value=o.volume??65;$('hud-volume-label').textContent=$('hud-volume').value;}
+function hudPayload(){return{show:$('hud-show').checked,auto_name:$('hud-auto-name').checked,name:$('hud-name').value.trim(),seconds:parseInt($('hud-seconds').value),opacity:parseInt($('hud-opacity').value),alert:$('hud-alert').checked,other_alerts:$('hud-other-alert').checked,show_weakness:$('hud-weakness').checked,volume:parseInt($('hud-volume').value)}}
 function fillMusic(){if(!model)return;currentMusicKey=$('music-diff').value+'|'+$('music-phase').value;$('music-track').value=model.music[currentMusicKey]||'';$('music-fallback').value=model.fallback[currentMusicKey]||''}
 function fillBoss(){if(!model)return;currentBoss=$('boss-name').value.trim();$('boss-track').value=model.boss[currentBoss]||'';$('boss-fallback').value=model.fallback['boss|'+currentBoss]||''}
 async function loadConfig(first=false){const x=await request('/api/config');const prevKey=currentMusicKey,prevBoss=currentBoss;
@@ -205,6 +207,7 @@ let previousStatus='';async function poll(){try{
  if(v.identity_status)$('hud-name-status').textContent=v.identity_status;
  $('hud-current-boss').textContent=c.boss||'待機中';$('hud-current-target').textContent=c.is_targeted?'⚠ あなたがターゲット（推定）':(c.target||'未検出');
  $('hud-current-dps').textContent=(c.dps??0).toFixed(1);$('hud-current-damage').textContent=(c.boss_damage??0).toLocaleString();
+ const w=v.weakness||{};const entries=(w.elements||[]).map(e=>e.name+' '+e.value+(e.kind==='weak'?'（弱点）':e.kind==='resist'?'（耐性）':''));$('hud-boss-weakness').textContent=w.available?[...entries,...(w.notes||[])].join(' / '):'該当ボスの参考データがありません。';
  $('hud-observation').textContent='解析したダメージイベント '+(c.events_found??0)+'件 / '+(c.dps_window??10)+'秒DPS。イベントが0件ならログ形式を確認してください。';
  if(!$('hud-show').matches(':focus')&&v.overlay_visible!==$('hud-show').checked){$('hud-show').checked=!!v.overlay_visible;}
  if(v.status!==previousStatus){previousStatus=v.status}

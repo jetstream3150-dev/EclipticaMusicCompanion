@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk,filedialog,messagebox
 from datetime import datetime
 from combat_meter import CombatMeter
+from boss_weakness import lookup as lookup_weakness
 from vrchat_identity import detect_identity, session_sort_key
 BASE=Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 USER_DIR=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else BASE
@@ -143,7 +144,7 @@ class BattleHUD(tk.Toplevel):
  def __init__(self,app):
   super().__init__(app.root)
   self.app=app;self.overrideredirect(True);self.attributes('-topmost',True)
-  self.geometry('362x310+48+75');self.configure(bg='#060d16')
+  self.geometry('362x405+48+75');self.configure(bg='#060d16')
   self.start_drag=None
   self.border=tk.Frame(self,bg='#164e55',padx=1,pady=1);self.border.pack(fill='both',expand=True)
   content=tk.Frame(self.border,bg='#0d1721',padx=15,pady=12);content.pack(fill='both',expand=True)
@@ -162,7 +163,8 @@ class BattleHUD(tk.Toplevel):
    cell=tk.Frame(cards,bg='#152734',padx=12,pady=8);cell.grid(row=i//2,column=i%2,padx=3,pady=3,sticky='nsew');cards.columnconfigure(i%2,weight=1)
    tk.Label(cell,text=label,font=('Segoe UI',9),bg='#152734',fg='#80a6b4',anchor='w').pack(fill='x')
    val=tk.Label(cell,text='0',font=('Segoe UI',18,'bold'),bg='#152734',fg='#f5ffff',anchor='w');val.pack(fill='x');self.metrics[key]=val
-  self.note=tk.Label(content,text='ログから推定 / 画面上をドラッグして移動',font=('Segoe UI',9),bg='#0d1721',fg='#7896a3');self.note.pack(anchor='w',pady=(12,0))
+  self.weak_lbl=tk.Label(content,text='',font=('Segoe UI',9),bg='#0d1721',fg='#c3e3e4',anchor='w',justify='left',wraplength=320);self.weak_lbl.pack(fill='x',pady=(8,0))
+  self.note=tk.Label(content,text='ログから推定 / 画面上をドラッグして移動',font=('Segoe UI',9),bg='#0d1721',fg='#7896a3');self.note.pack(anchor='w',pady=(6,0))
   self.refresh(app.meter.snapshot(),app.overlay_cfg)
  def drag_start(self,event):self.start_drag=(event.x_root-self.winfo_x(),event.y_root-self.winfo_y())
  def drag(self,event):
@@ -174,6 +176,12 @@ class BattleHUD(tk.Toplevel):
   targeted=v['is_targeted'];self.target_lbl.config(text='⚠ YOU ARE TARGETED!' if targeted else 'TARGET (推定)  /  '+v['target'][:30],fg='#ff727c' if targeted else '#b2d8de')
   for key,lbl in self.metrics.items():
    value=v.get(key,0);lbl.config(text=('%0.1f'%value if key in ('dps','attack_speed') else '%0.0f'%value))
+  if cfg.get('show_weakness',True):
+   w=lookup_weakness(v['boss'],str(BASE/'boss_weakness_data.txt'))
+   changes=[('弱' if e['kind']=='weak' else '耐')+e['name']+' '+e['value'] for e in w['elements'] if e['kind']!='neutral']
+   summary='  '.join(changes) if changes else (' / '.join(w['notes'][:2]) if w['notes'] else ('弱点・耐性: すべて等倍' if w['available'] else '弱点・耐性: 未登録'))
+   self.weak_lbl.config(text='参考  '+summary)
+  else:self.weak_lbl.config(text='')
   self.border.config(bg='#aa3646' if targeted else '#164e55')
   self.note.config(text='集計イベント %d件  /  %d秒DPS  • ドラッグ移動'%(v['events_found'],v['dps_window']))
 
@@ -181,7 +189,7 @@ class App:
  def __init__(self,root,port):
   self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.identity_status='自動取得の確認待ち';self.identity_log='';self.build();self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def _overlay_options(self):
-  defaults={'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'volume':65,'seconds':10,'opacity':92}
+  defaults={'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'volume':65,'seconds':10,'opacity':92}
   saved=self.cfg.get('overlay',{})
   if isinstance(saved,dict):
    defaults.update({k:v for k,v in saved.items() if k in defaults})
@@ -752,9 +760,10 @@ class App:
    'phase':self.phase_choice.get(),'difficulties':list(self.DIFFICULTIES),
    'phases':list(self.PHASES),'boss_choices':sorted(set(self.BOSS_CHOICES)|set(self.OFFICIAL_BOSS_CHOICES)|self.discovered_bosses|set(self.boss_map),key=str.casefold),'revision':self.revision}
  def api_view(self):
+  combat=self.meter.snapshot()
   return {'status':self.status.get(),'event':self.event_status.get(),
     'player':self.player_status.get(),'monitoring':bool(self.worker and self.worker.is_alive() and not self.stop.is_set()),
-    'revision':self.revision,'volume':self.volume.get(),'combat':self.meter.snapshot(),'overlay_visible':bool(self.overlay_cfg['show']),'identity_status':self.identity_status}
+    'revision':self.revision,'volume':self.volume.get(),'combat':combat,'weakness':lookup_weakness(combat['boss'],str(BASE/'boss_weakness_data.txt')),'overlay_visible':bool(self.overlay_cfg['show']),'identity_status':self.identity_status}
  def api_action(self,d):
   action=d.get('action','')
   if not isinstance(action,str):raise ValueError('不正な操作です')
@@ -778,7 +787,10 @@ class App:
    if not 1<=seconds<=15 or not 0<=volume<=100 or not 30<=opacity<=100:raise ValueError('HUDの設定範囲外です')
    for key in ('show','alert','other_alerts'):
     if not isinstance(d.get(key),bool):raise ValueError('HUDのチェック項目が不正です')
+   show_weakness=d.get('show_weakness',True)
+   if not isinstance(show_weakness,bool):raise ValueError('弱点表示の指定が不正です')
    self.overlay_cfg.update(show=d['show'],alert=d['alert'],other_alerts=d['other_alerts'],name=own,auto_name=auto_name,seconds=seconds,volume=volume,opacity=opacity)
+   self.overlay_cfg['show_weakness']=show_weakness
    if auto_name:self.refresh_identity(force=True)
    else:self.identity_status='手入力モード'
    self.meter.configure(self.overlay_cfg['name'],seconds)
@@ -907,6 +919,24 @@ if __name__=='__main__':
       raise FileNotFoundError('Missing bundled Tcl/Tk data: '+needed)
   except Exception:
    sys.exit(87)
+  sys.exit(0)
+ if '--gui-self-test' in sys.argv:
+  # Exercise the bundled application and its HUD without opening a browser or
+  # reading VRChat logs. The build runs this with an isolated LOCALAPPDATA.
+  try:
+   root=tk.Tk();root.withdraw()
+   app=App(root,0)
+   app.meter.ingest('ECLIPTICA - now fighting boss: YukiPhase2(Clone) on phase: 0')
+   app.toggle_hud(True);app.update_hud_loop();root.update()
+   if app.api_view()['weakness']['name']!='Yuki(P2)' or '弱火' not in app.hud.weak_lbl.cget('text'):
+    raise RuntimeError('HUD boss reference information is unavailable')
+   app.close()
+  except Exception as exc:
+   report=os.environ.get('ECLIPTICA_GUI_SELF_TEST_REPORT')
+   if report:
+    try:Path(report).write_text(type(exc).__name__+': '+str(exc),encoding='utf-8')
+    except OSError:pass
+   sys.exit(88)
   sys.exit(0)
  if sys.platform=='win32':
   import ctypes

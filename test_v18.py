@@ -44,6 +44,13 @@ def test_app():
  a.meter.ingest('ECLIPTICA - damage dealt: 320 STRIKE')
  a.update_hud_loop();root.update()
  assert a.api_view()['combat']['boss_damage']==320
+ a.meter.ingest('ECLIPTICA - now fighting boss: YukiPhase2(Clone) on phase: 0')
+ a.update_hud_loop();root.update()
+ assert a.api_view()['weakness']['name']=='Yuki(P2)'
+ assert '弱火' in a.hud.weak_lbl.cget('text')
+ a.api_action({'action':'overlay_settings','show':True,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'show_weakness':False,'volume':44,'seconds':10,'opacity':90})
+ a.update_hud_loop();root.update()
+ assert a.hud.weak_lbl.cget('text')==''
  a.api_action({'action':'overlay_settings','show':False,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
  root.update();assert a.hud.state()=='withdrawn'
  a.close();print('Tk integration checks PASS')

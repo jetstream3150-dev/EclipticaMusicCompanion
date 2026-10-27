@@ -24,8 +24,11 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m pip install --only-binary=:all: -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m pip install --only-binary=:all: pip-audit==2.10.1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Audit installed direct dependencies
         run: python -m pip_audit -r requirements.txt
@@ -33,11 +36,17 @@ jobs:
       - name: Verify Python sources and lite feature gates
         shell: pwsh
         run: |
-          python -m compileall -q EclipticaMusic.py combat_meter.py vrchat_identity.py tools
-          python test_v18.py
+          python -m compileall -q EclipticaMusic.py combat_meter.py vrchat_identity.py boss_weakness.py tools
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python test_v18.py --gui
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/test_lite.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # tools/test_identity.py must run as a module for imports to resolve.
           python -m tools.test_identity
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_weakness
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Windows folder with complete Tcl Tk runtime
         shell: pwsh
@@ -62,6 +71,8 @@ jobs:
             '--exclude-module', 'yt_dlp', '--exclude-module', 'imageio_ffmpeg',
             '--add-data', 'player.html;.', '--add-data', 'unified.html;.',
             '--add-data', 'engine.js;.',
+            '--add-data', 'boss_weakness_data.txt;.',
+            '--add-data', 'LICENSE_EclipticaHUD-C.txt;.',
             '--add-data', ($tclDir + ';_tcl_data'),
             '--add-data', ($tkDir + ';_tk_data'),
             'EclipticaMusic.py'
@@ -93,6 +104,26 @@ jobs:
             throw "Frozen Tcl/Tk startup smoke test failed: exit code $($probe.ExitCode)"
           }
           Write-Host 'PASS: bundled Tcl/Tk libraries and frozen executable startup'
+
+      - name: Open the frozen app and HUD in an isolated GUI smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'ecliptica-gui-test'
+          $env:ECLIPTICA_GUI_SELF_TEST_REPORT = Join-Path $env:RUNNER_TEMP 'ecliptica-gui-test-error.txt'
+          $exe = (Resolve-Path 'dist/EclipticaMusicCompanion/EclipticaMusicCompanion.exe').Path
+          $probe = Start-Process -FilePath $exe -ArgumentList '--gui-self-test' -PassThru
+          if (-not $probe.WaitForExit(30000)) {
+            $probe.Kill()
+            throw 'Frozen GUI startup test timed out.'
+          }
+          if ($probe.ExitCode -ne 0) {
+            if (Test-Path $env:ECLIPTICA_GUI_SELF_TEST_REPORT) {
+              Get-Content $env:ECLIPTICA_GUI_SELF_TEST_REPORT
+            }
+            throw "Frozen GUI startup test failed: exit code $($probe.ExitCode)"
+          }
+          Write-Host 'PASS: frozen application and HUD initialized with boss data'
 
       - name: Verify release contents and write SHA256 manifest
         run: python tools/verify_release.py dist/EclipticaMusicCompanion
