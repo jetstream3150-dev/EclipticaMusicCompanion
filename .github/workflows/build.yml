@@ -50,17 +50,25 @@ jobs:
               raise RuntimeError('Expected Windows x64 executable')
           base = pe + 24 + optional_size
           sections = {}
+          section_data = {}
           for i in range(count):
               offset = base + i * 40
               name = boot[offset:offset+8].split(b'\0', 1)[0].decode('ascii', 'strict')
               _, _, size, start = struct.unpack_from('<IIII', boot, offset+8)
-              sections[name] = hashlib.sha256(boot[start:start+size]).hexdigest()
+              section_data[name] = boot[start:start+size]
+              sections[name] = hashlib.sha256(section_data[name]).hexdigest()
           expected = {
               '.text': '67bdc7f5eeccf01180cd5b3621be7d0265efa6a44742496a7a6c6f9076ef4b1f',
               '.rdata': '62f52c84f30e63a93cc3624bd5ed51324ca86a3291611734d79e74aff0b2f1b4',
           }
           for name, digest in expected.items():
               print(name, 'official:', sections.get(name, 'missing'), 'build 34:', digest)
+          # Publish only hashes of the official bootloader's small blocks, so
+          # the different region can be found without uploading the test ZIP.
+          data = section_data.get('.rdata', b'')
+          print('OFFICIAL_RDATA_SIZE', len(data))
+          for offset in range(0, len(data), 1024):
+              print('OFFICIAL_RDATA_BLOCK', offset, hashlib.sha256(data[offset:offset+1024]).hexdigest())
           if any(sections.get(name) != digest for name, digest in expected.items()):
               raise RuntimeError('Bootloader section differs from build 34; investigate before drawing conclusions')
           print('PASS: build 34 executable code and read-only data match the pinned PyInstaller bootloader.')
