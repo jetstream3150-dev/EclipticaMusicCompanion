@@ -2,6 +2,16 @@ name: Notify Discord of releases
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_url:
+        description: GitHub release URL
+        required: true
+        type: string
+      release_title:
+        description: Release title
+        required: true
+        type: string
 
 permissions: {}
 
@@ -12,7 +22,6 @@ jobs:
       - name: Send release announcement
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          EVENT_PATH: ${{ github.event_path }}
         run: |
           python - <<'PY'
           import json, os, urllib.parse, urllib.request
@@ -21,11 +30,17 @@ jobs:
           parsed = urllib.parse.urlsplit(url)
           if parsed.scheme != "https" or parsed.hostname not in ("discord.com", "discordapp.com") or not parsed.path.startswith("/api/webhooks/"):
               raise SystemExit("DISCORD_WEBHOOK_URL is missing or invalid")
-          with open(os.environ["EVENT_PATH"], encoding="utf-8") as file:
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as file:
               event = json.load(file)
-          release = event["release"]
-          title = release.get("name") or release["tag_name"]
-          link = release["html_url"]
+          if "release" in event:
+              release = event["release"]
+              title = release.get("name") or release["tag_name"]
+              link = release["html_url"]
+          else:
+              title = event["inputs"]["release_title"]
+              link = event["inputs"]["release_url"]
+          if not link.startswith("https://github.com/jetstream3150-dev/EclipticaMusicCompanion/releases/tag/"):
+              raise SystemExit("Invalid release URL")
           message = {"content": f"📢 Ecliptica Music Companion のリリース\n{title}\n{link}", "allowed_mentions": {"parse": []}}
           request = urllib.request.Request(url, json.dumps(message, ensure_ascii=False).encode("utf-8"), {"Content-Type": "application/json"}, method="POST")
           try:
