@@ -70,9 +70,27 @@ def test_app():
  else:raise AssertionError('invalid party metric was accepted')
  a.api_action({'action':'party_roster','rows':[]})
  root.update();assert a.party_hud.state()=='withdrawn'
+ a.api_action({'action':'overlay_settings','show':True,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'show_weakness':True,'separate_widgets':True,'volume':44,'seconds':10,'opacity':90})
+ a.meter.ingest('ECLIPTICA - now fighting boss: YukiPhase2(Clone) on phase: 0')
+ a.update_hud_loop();root.update()
+ weakness=a.extra_widgets['weakness']
+ assert weakness.state()=='normal' and '弱火' in weakness.value.cget('text')
+ assert a.hud.weak_lbl.cget('text')==''
+ from types import SimpleNamespace
+ weakness.drag_start(SimpleNamespace(x_root=weakness.winfo_x()+5,y_root=weakness.winfo_y()+5))
+ weakness.drag(SimpleNamespace(x_root=205,y_root=225));root.update();weakness.drag_end(None)
+ assert a.api_config()['overlay']['widget_positions']['weakness']==[200,220]
+ a.meter.ingest('ECLIPTICA - now in stage: Stage_B on phase: 0.1')
+ a.meter.ingest('2026 Debug - spawn token, True, 55')
+ a.update_hud_loop();root.update()
+ assert a.extra_widgets['tokens'].state()=='normal' and weakness.state()=='withdrawn'
+ a.meter.ingest('ECLIPTICA - now in intermission')
+ a.meter.ingest('2026 Debug - Dealing 30 STRIKE damage')
+ a.update_hud_loop();root.update()
+ assert a.extra_widgets['dummy'].state()=='normal' and a.extra_widgets['tokens'].state()=='withdrawn'
  a.api_action({'action':'overlay_settings','show':False,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
  assert a.api_config()['overlay']['sound_path']=='C:/test/missing.mp3'
- root.update();assert a.hud.state()=='withdrawn'
+ root.update();assert a.hud.state()=='withdrawn' and a.extra_widgets['dummy'].state()=='withdrawn'
  a.close();print('Tk integration checks PASS')
 
 if __name__=='__main__':

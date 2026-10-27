@@ -202,18 +202,41 @@ class BattleHUD(tk.Toplevel):
   targeted=v['is_targeted'];self.target_lbl.config(text='⚠ YOU ARE TARGETED!' if targeted else 'TARGET (推定)  /  '+v['target'][:30],fg='#ff727c' if targeted else '#b2d8de')
   for key,lbl in self.metrics.items():
    value=v.get(key,0);lbl.config(text=('%0.1f'%value if key in ('dps','attack_speed') else '%0.0f'%value))
-  if cfg.get('show_weakness',True):
+  if cfg.get('show_weakness',True) and not cfg.get('separate_widgets',False):
    w=lookup_weakness(v['boss'],str(BASE/'boss_weakness_data.txt'))
    changes=[('弱' if e['kind']=='weak' else '耐')+e['name']+' '+e['value'] for e in w['elements'] if e['kind']!='neutral']
    summary='  '.join(changes) if changes else (' / '.join(w['notes'][:2]) if w['notes'] else ('弱点・耐性: すべて等倍' if w['available'] else '弱点・耐性: 未登録'))
    self.weak_lbl.config(text='参考  '+summary)
   else:self.weak_lbl.config(text='')
-  if v.get('mode')=='stage':tracker='トークン（推定） %d / %d'%(v.get('tokens_collected',0),v.get('tokens_spawned',0))
+  if cfg.get('separate_widgets',False):tracker=''
+  elif v.get('mode')=='stage':tracker='トークン（推定） %d / %d'%(v.get('tokens_collected',0),v.get('tokens_spawned',0))
   elif v.get('mode')=='break' and v.get('dummy_hits',0):tracker='練習ダミー（推定） DPS %.1f / 合計 %.0f'%(v.get('dummy_dps',0),v.get('dummy_damage',0))
   else:tracker=''
   self.tracker_lbl.config(text=tracker)
   self.border.config(bg='#aa3646' if targeted else '#164e55')
   self.note.config(text='集計イベント %d件  /  %d秒DPS  • ドラッグ移動'%(v['events_found'],v['dps_window']))
+
+class MetricWidget(tk.Toplevel):
+ """Independently movable desktop widget; the header acts as a drag handle."""
+ TITLES={'weakness':'ボスの弱点・耐性','tokens':'トークン（推定）','dummy':'練習ダミー（推定）'}
+ def __init__(self,app,kind,position):
+  super().__init__(app.root)
+  self.app=app;self.kind=kind;self.start_drag=None
+  self.overrideredirect(True);self.attributes('-topmost',True);self.configure(bg='#0d1721')
+  self.geometry('300x86%+d%+d'%tuple(position))
+  frame=tk.Frame(self,bg='#0d1721',padx=10,pady=8,highlightbackground='#164e55',highlightthickness=1);frame.pack(fill='both',expand=True)
+  header=tk.Label(frame,text='☰  '+self.TITLES[kind]+'  • ドラッグ移動',font=('Segoe UI',9,'bold'),bg='#0d1721',fg='#67eee1',anchor='w',cursor='hand2');header.pack(fill='x')
+  header.bind('<ButtonPress-1>',self.drag_start);header.bind('<B1-Motion>',self.drag);header.bind('<ButtonRelease-1>',self.drag_end)
+  self.value=tk.Label(frame,text='',font=('Segoe UI',9),bg='#0d1721',fg='#edf7f8',anchor='w',justify='left',wraplength=278);self.value.pack(fill='both',expand=True)
+ def drag_start(self,event):self.start_drag=(event.x_root-self.winfo_x(),event.y_root-self.winfo_y())
+ def drag(self,event):
+  if self.start_drag:
+   x=max(0,event.x_root-self.start_drag[0]);y=max(0,event.y_root-self.start_drag[1]);self.geometry('+%d+%d'%(x,y))
+ def drag_end(self,event):
+  if self.start_drag:
+   self.start_drag=None;self.app.overlay_cfg['widget_positions'][self.kind]=[self.winfo_x(),self.winfo_y()];self.app.save(quiet=True)
+ def refresh(self,text,opacity):
+  self.attributes('-alpha',max(.3,min(1,float(opacity)/100)));self.value.config(text=text)
 
 class PartyHUD(tk.Toplevel):
  """A separate, draggable desktop window for the locally displayed roster."""
@@ -239,9 +262,9 @@ class PartyHUD(tk.Toplevel):
 
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.party_hud=None;self.party_rows=[];self.identity_status='自動取得の確認待ち';self.identity_log='';self.build();self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.party_hud=None;self.party_rows=[];self.extra_widgets={};self.identity_status='自動取得の確認待ち';self.identity_log='';self.build();self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def _overlay_options(self):
-  defaults={'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'show_party':True,'sound_path':'','volume':65,'seconds':10,'opacity':92}
+  defaults={'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'show_party':True,'separate_widgets':False,'widget_positions':{},'sound_path':'','volume':65,'seconds':10,'opacity':92}
   saved=self.cfg.get('overlay',{})
   if isinstance(saved,dict):
    defaults.update({k:v for k,v in saved.items() if k in defaults})
@@ -256,6 +279,9 @@ class App:
   try:defaults['opacity']=max(30,min(100,int(defaults['opacity'])))
   except (ValueError,TypeError):defaults['opacity']=92
   defaults['name']=str(defaults['name'])[:90]
+  defaults['separate_widgets']=defaults['separate_widgets'] is True
+  positions=defaults.get('widget_positions')
+  defaults['widget_positions']={k:list(v) for k,v in positions.items() if k in MetricWidget.TITLES and isinstance(v,list) and len(v)==2 and all(type(n) is int and 0<=n<=16384 for n in v)} if isinstance(positions,dict) else {}
   if not isinstance(defaults['sound_path'],str) or len(defaults['sound_path'])>4096:defaults['sound_path']=''
   return defaults
  def refresh_identity(self,force=False):
@@ -287,6 +313,23 @@ class App:
    if self.party_hud is None or not self.party_hud.winfo_exists():self.party_hud=PartyHUD(self)
    self.party_hud.refresh(self.party_rows,self.overlay_cfg.get('opacity',92));self.party_hud.deiconify()
   elif self.party_hud is not None and self.party_hud.winfo_exists():self.party_hud.withdraw()
+ def refresh_metric_widgets(self,v):
+  enabled=bool(self.overlay_cfg.get('show') and self.overlay_cfg.get('separate_widgets'))
+  w=lookup_weakness(v['boss'],str(BASE/'boss_weakness_data.txt')) if enabled and v.get('mode')=='boss' else {}
+  changes=[('弱' if e['kind']=='weak' else '耐')+e['name']+' '+e['value'] for e in w.get('elements',[]) if e['kind']!='neutral']
+  weak='  '.join(changes) if changes else (' / '.join(w.get('notes',[])[:2]) or ('すべて等倍' if w.get('available') else '未登録'))
+  values={
+   'weakness':(enabled and self.overlay_cfg.get('show_weakness',True) and v.get('mode')=='boss',weak),
+   'tokens':(enabled and v.get('mode')=='stage','取得 %d / 出現 %d'%(v.get('tokens_collected',0),v.get('tokens_spawned',0))),
+   'dummy':(enabled and v.get('mode')=='break' and v.get('dummy_hits',0)>0,'DPS %.1f / 合計 %.0f'%(v.get('dummy_dps',0),v.get('dummy_damage',0)))}
+  positions=self.overlay_cfg['widget_positions']
+  for index,(kind,(visible,value)) in enumerate(values.items()):
+   widget=self.extra_widgets.get(kind)
+   if visible:
+    if widget is None or not widget.winfo_exists():
+     widget=MetricWidget(self,kind,positions.get(kind,[430,250+index*95]));self.extra_widgets[kind]=widget
+    widget.refresh(value,self.overlay_cfg.get('opacity',92));widget.deiconify()
+   elif widget is not None and widget.winfo_exists():widget.withdraw()
  def toggle_hud(self,visible):
   self.overlay_cfg['show']=bool(visible)
   if visible:
@@ -295,6 +338,7 @@ class App:
    self.hud.deiconify();self.hud.lift()
   elif self.hud is not None and self.hud.winfo_exists():self.hud.withdraw()
   self.refresh_party_hud()
+  self.refresh_metric_widgets(self.meter.snapshot())
  def update_hud_loop(self):
   for _ in range(100):
    try:kind,value=self.combat_events.get_nowait()
@@ -305,8 +349,10 @@ class App:
    elif kind in ('target_on','target_off','target_switch'):
     if self.overlay_cfg.get('alert',True) and (kind!='target_switch' or self.overlay_cfg.get('other_alerts',False)):
      play_target_tone(kind,int(self.overlay_cfg.get('volume',65)),self.overlay_cfg.get('sound_path',''))
+  snapshot=self.meter.snapshot()
   if self.hud is not None and self.hud.winfo_exists():
-   self.hud.refresh(self.meter.snapshot(), self.overlay_cfg)
+   self.hud.refresh(snapshot,self.overlay_cfg)
+  self.refresh_metric_widgets(snapshot)
   if self.root.winfo_exists():self.root.after(350,self.update_hud_loop)
  def build(self):
   BG='#0b1020';PANEL='#17263d';FIELD='#263650';EDGE='#304363';TEXT='#edf4ff';MUTED='#9cb0cc';ACCENT='#49e7da'
@@ -890,12 +936,14 @@ class App:
    if not isinstance(show_weakness,bool):raise ValueError('弱点表示の指定が不正です')
    show_party=d.get('show_party',self.overlay_cfg.get('show_party',True))
    if not isinstance(show_party,bool):raise ValueError('パーティーHUDの指定が不正です')
+   separate_widgets=d.get('separate_widgets',self.overlay_cfg.get('separate_widgets',False))
+   if not isinstance(separate_widgets,bool):raise ValueError('ウィジェット配置の指定が不正です')
    sound_path=d.get('sound_path',self.overlay_cfg.get('sound_path',''))
    if not isinstance(sound_path,str) or len(sound_path)>4096 or '\0' in sound_path:raise ValueError('通知音ファイルの指定が不正です')
    sound_path=sound_path.strip()
    if sound_path and Path(sound_path).suffix.lower() not in ('.wav','.mp3'):raise ValueError('通知音はWAVまたはMP3を選択してください')
    self.overlay_cfg.update(show=d['show'],alert=d['alert'],other_alerts=d['other_alerts'],name=own,auto_name=auto_name,seconds=seconds,volume=volume,opacity=opacity)
-   self.overlay_cfg['show_weakness']=show_weakness;self.overlay_cfg['show_party']=show_party;self.overlay_cfg['sound_path']=sound_path
+   self.overlay_cfg['show_weakness']=show_weakness;self.overlay_cfg['show_party']=show_party;self.overlay_cfg['separate_widgets']=separate_widgets;self.overlay_cfg['sound_path']=sound_path
    if auto_name:self.refresh_identity(force=True)
    else:self.identity_status='手入力モード'
    self.meter.configure(self.overlay_cfg['name'],seconds)
@@ -1008,6 +1056,8 @@ class App:
   if self.root.winfo_exists():self.root.after(1800,self.check_ui_closed)
  def close(self):
   self.stop.set();self.save(quiet=True);self.stop_music()
+  for widget in self.extra_widgets.values():
+   if widget.winfo_exists():widget.destroy()
   if self.party_hud is not None and self.party_hud.winfo_exists():self.party_hud.destroy()
   if self.hud is not None and self.hud.winfo_exists():self.hud.destroy()
   if self.player_process is not None and self.player_process.poll() is None:
@@ -1043,6 +1093,9 @@ if __name__=='__main__':
    app.toggle_hud(True);app.update_hud_loop();root.update()
    if app.api_view()['weakness']['name']!='Yuki(P2)' or '弱火' not in app.hud.weak_lbl.cget('text'):
     raise RuntimeError('HUD boss reference information is unavailable')
+   app.overlay_cfg['separate_widgets']=True;app.update_hud_loop();root.update()
+   if '弱火' not in app.extra_widgets['weakness'].value.cget('text'):
+    raise RuntimeError('Movable weakness widget is unavailable')
    app.close()
   except Exception as exc:
    report=os.environ.get('ECLIPTICA_GUI_SELF_TEST_REPORT')
