@@ -9,14 +9,12 @@ $stamp = Get-Date -Format o
 try {
   if (-not (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue)) {
     'NOT VERIFIED: Microsoft Defender cmdlets are not available on this runner.' | Add-Content $report
-    Write-Warning 'Defender is unavailable; artifact remains unverified by antivirus.'
-    exit 0
+    throw 'Defender is unavailable; artifact must not be uploaded.'
   }
   $s = Get-MpComputerStatus -ErrorAction Stop
   if (-not $s.AMServiceEnabled -or -not $s.AntivirusEnabled) {
     'NOT VERIFIED: Microsoft Defender antivirus is disabled on this runner.' | Add-Content $report
-    Write-Warning 'Defender not running; artifact remains unverified by antivirus.'
-    exit 0
+    throw 'Defender is disabled; artifact must not be uploaded.'
   }
   try { Update-MpSignature -ErrorAction Stop | Out-Null }
   catch { "SIGNATURE UPDATE WARNING: $($_.Exception.Message)" | Add-Content $report }
@@ -26,7 +24,7 @@ try {
     'FAILED: Antivirus removed or quarantined the executable.' | Add-Content $report
     throw 'Executable missing after Windows Defender scan.'
   }
-  $detections = @(Get-MpThreatDetection -ErrorAction SilentlyContinue | Where-Object {
+  $detections = @(Get-MpThreatDetection -ErrorAction Stop | Where-Object {
     $_.InitialDetectionTime -ge $scanStarted.AddMinutes(-1) -and
     (@($_.Resources) -join ' ') -like "*$folder*"
   })
