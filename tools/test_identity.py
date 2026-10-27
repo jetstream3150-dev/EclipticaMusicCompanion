@@ -3,7 +3,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from vrchat_identity import parse_authenticated_name, read_authenticated_name, detect_identity
+from vrchat_identity import parse_authenticated_name, read_authenticated_name, detect_identity, session_sort_key
 
 UUID = 'usr_c244ca22-2273-4440-9b73-074eb346535e'
 assert parse_authenticated_name('2025.07.24 20:43:05 Debug - User Authenticated: Auzlex (' + UUID + ')') == 'Auzlex'
@@ -37,6 +37,7 @@ with tempfile.TemporaryDirectory() as folder:
     first.write_text('2026.10.26 Debug - User Authenticated: OLD (' + UUID + ')\n', encoding='utf8')
     os.utime(first, (time.time() + 3, time.time() + 3))
     assert detect_identity(base).name == ''
+    assert max(base.glob('output_log_*.txt'), key=session_sort_key) == second
     # In large logs, the authenticator event can be early or near the end.
     second.write_bytes(('2026.10.27 18:01:00 Debug - User Authenticated: 名前2 (' + UUID + ')\n').encode('utf8')+b'X'*6_100_000)
     assert read_authenticated_name(second) == '名前2'

@@ -22,6 +22,15 @@ USER_ID_SUFFIX = re.compile(r'\s+\(usr_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 # mtime; never fall back to an older session's authenticated name.
 LOG_FILENAME = re.compile(r'^output_log_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.txt$', re.I)
 
+def session_sort_key(path: Path):
+    """Prefer the latest named VRChat session, even if an older log is touched."""
+    match = LOG_FILENAME.fullmatch(path.name)
+    mtime = path.stat().st_mtime_ns
+    if match:
+        return (1, match.group(1), match.group(2), mtime, path.name)
+    return (0, '', '', mtime, path.name)
+
+
 class IdentityResult(NamedTuple):
     name: str
     message: str
@@ -68,15 +77,6 @@ def detect_identity(log_dir: Path, *, now: float | None = None,
     """Find the current local identity, or fail closed with an explanation."""
     now = time.time() if now is None else now
     try:
-        def session_sort_key(path: Path):
-            match = LOG_FILENAME.fullmatch(path.name)
-            mtime = path.stat().st_mtime_ns
-            if match:
-                # Dates and times are zero-padded, so lexical sorting preserves
-                # chronological order. The filesystem mtime is only a tie-breaker.
-                return (1, match.group(1), match.group(2), mtime, path.name)
-            return (0, '', '', mtime, path.name)
-
         logs = sorted(log_dir.glob('output_log_*.txt'),
                       key=session_sort_key, reverse=True)
     except OSError:

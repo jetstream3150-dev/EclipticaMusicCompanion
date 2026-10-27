@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import ttk,filedialog,messagebox
 from datetime import datetime
 from combat_meter import CombatMeter
-from vrchat_identity import detect_identity
+from vrchat_identity import detect_identity, session_sort_key
 BASE=Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 USER_DIR=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else BASE
 CFG=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'EclipticaMusicCompanion'/'settings.json'
@@ -546,7 +546,7 @@ class App:
   except Exception as e:messagebox.showerror('保存失敗',str(e))
   finally:self._saving=False
  def detect(self):
-  files=sorted(LOG.glob('output_log_*.txt'),key=lambda p:p.stat().st_mtime,reverse=True)
+  files=sorted(LOG.glob('output_log_*.txt'),key=session_sort_key,reverse=True)
   if files:self.log.set(str(files[0]));self.status.set('最新ログを選択しました')
   else:messagebox.showwarning('ログ未検出','VRChatを起動してから再度お試しください。')
  def on_volume_change(self,_=None):
@@ -612,7 +612,7 @@ class App:
  def start(self):
   self.save()
   # Prefer the current VRChat session's newest log over a persisted stale path.
-  files=sorted(LOG.glob('output_log_*.txt'),key=lambda x:x.stat().st_mtime,reverse=True)
+  files=sorted(LOG.glob('output_log_*.txt'),key=session_sort_key,reverse=True)
   configured=Path(self.log.get()) if self.log.get().strip() else None
   p=files[0] if files else configured
   if p is None or not p.is_file():
@@ -667,8 +667,8 @@ class App:
     if not line:
      time.sleep(.25)
      try:
-      newest=max(LOG.glob('output_log_*.txt'),key=lambda x:x.stat().st_mtime,default=None)
-      if newest and newest!=p and newest.stat().st_mtime>p.stat().st_mtime:
+      newest=max(LOG.glob('output_log_*.txt'),key=session_sort_key,default=None)
+      if newest and newest!=p and session_sort_key(newest)>session_sort_key(p):
        nf=newest.open('r',encoding='utf-8',errors='replace')
        nf.seek(0,2)
        f.close();f=nf;p=newest
