@@ -63,6 +63,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_watch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_package_release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_alert_sound
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_party_relay
@@ -164,13 +166,57 @@ jobs:
       - name: Verify release contents and write SHA256 manifest
         run: python tools/verify_release.py dist/EclipticaMusicCompanion
 
-      - name: Microsoft Defender scan (records unavailable status)
+      - name: Microsoft Defender scan of the application folder
         shell: pwsh
         run: ./tools/windows_defender_scan.ps1 -ReleaseDir dist/EclipticaMusicCompanion
 
-      - name: Upload audited-lite distribution
-        uses: actions/upload-artifact@v6
-        with:
-          name: EclipticaMusicCompanion-Windows-test-build
-          path: dist/EclipticaMusicCompanion/
-          if-no-files-found: error
+      - name: Create and verify the exact ZIP in temporary storage
+        shell: pwsh
+        run: |
+          python tools/package_release.py dist/EclipticaMusicCompanion (Join-Path $env:RUNNER_TEMP 'EclipticaMusicCompanion-Windows.zip')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Microsoft Defender scan of the ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = (Resolve-Path (Join-Path $env:RUNNER_TEMP 'EclipticaMusicCompanion-Windows.zip')).Path
+          $status = Get-MpComputerStatus -ErrorAction Stop
+          $prefs = Get-MpPreference -ErrorAction Stop
+          if (-not $status.AMServiceEnabled -or -not $status.AntivirusEnabled -or
+              -not $status.AntivirusSignatureLastUpdated -or
+              $status.AntivirusSignatureLastUpdated -lt (Get-Date).AddDays(-2)) {
+            throw 'Defender is unavailable, disabled, or has stale signatures.'
+          }
+          if ($null -eq $prefs.DisableArchiveScanning -or $prefs.DisableArchiveScanning) {
+            throw 'Defender archive scanning is disabled or could not be verified.'
+          }
+          foreach ($extension in @($prefs.ExclusionExtension)) {
+            if (-not $extension) { continue }
+            if (($extension -as [string]).TrimStart('.').ToLowerInvariant() -in @('zip','exe','pyd','dll','html','js')) {
+              throw 'A distribution file extension is excluded from Defender scanning.'
+            }
+          }
+          foreach ($exclusion in @($prefs.ExclusionPath)) {
+            if (-not $exclusion) { continue }
+            $expanded = [Environment]::ExpandEnvironmentVariables($exclusion).TrimEnd('\')
+            if ($zip -like $expanded -or $zip -like ($expanded + '\*')) {
+              throw 'The ZIP is under a Defender path exclusion.'
+            }
+          }
+          $before = (Get-FileHash -Algorithm SHA256 $zip).Hash
+          $started = Get-Date
+          Start-MpScan -ScanType CustomScan -ScanPath $zip -ErrorAction Stop
+          if (-not (Test-Path $zip) -or (Get-FileHash -Algorithm SHA256 $zip).Hash -ne $before) {
+            throw 'The ZIP was removed or changed during the Defender scan.'
+          }
+          $detections = @(Get-MpThreatDetection -ErrorAction Stop | Where-Object {
+            $_.InitialDetectionTime -ge $started.AddMinutes(-1) -and
+            (@($_.Resources) -join ' ') -like "*$zip*"
+          })
+          if ($detections.Count -gt 0) { throw "Defender reported $($detections.Count) ZIP detection(s)." }
+          Write-Host "PASS: Defender ZIP scan, signature $($status.AntivirusSignatureVersion), SHA-256 $before"
+          Write-Host 'NOT CLEARED: Chrome warning remains under investigation; no file is uploaded.'
+
+      # This repository is public. Keep all binaries on the temporary runner
+      # until the Chrome warning and the distribution checks are resolved.
