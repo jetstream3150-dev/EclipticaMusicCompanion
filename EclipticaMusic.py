@@ -262,7 +262,7 @@ class PartyHUD(tk.Toplevel):
 
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.party_hud=None;self.party_rows=[];self.extra_widgets={};self.identity_status='自動取得の確認待ち';self.identity_log='';self.build();self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.watch_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.party_hud=None;self.party_rows=[];self.extra_widgets={};self.identity_status='自動取得の確認待ち';self.identity_log='';self.build();self.root.after(50,self.drain_watch_events);self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def _overlay_options(self):
   defaults={'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'show_party':True,'separate_widgets':False,'widget_positions':{},'sound_path':'','volume':65,'seconds':10,'opacity':92}
   saved=self.cfg.get('overlay',{})
@@ -341,8 +341,9 @@ class App:
   self.refresh_metric_widgets(self.meter.snapshot())
  def update_hud_loop(self):
   for _ in range(100):
-   try:kind,value=self.combat_events.get_nowait()
+   try:generation,kind,value=self.combat_events.get_nowait()
    except queue.Empty:break
+   if generation!=self._watch_generation or self.stop.is_set():continue
    if kind=='boss':
     if value not in self.discovered_bosses:
      self.discovered_bosses.add(value);self.cfg['discovered_bosses']=sorted(self.discovered_bosses);self.revision+=1
@@ -737,15 +738,16 @@ class App:
   self.stop.set()
   self._watch_generation+=1
   self.meter.reset();self.meter.configure(self.overlay_cfg['name'],self.overlay_cfg['seconds'])
-  while True:
-   try:self.combat_events.get_nowait()
-   except queue.Empty:break
+  for pending in (self.combat_events,self.watch_events):
+   while True:
+    try:pending.get_nowait()
+    except queue.Empty:break
   self.stop=threading.Event();self.round=0;self.boss='';self.laststage=''
   self.event_status.set('検知イベント: 待機中（次のゲームイベントから再生）')
   # Read a fixed historical snapshot before monitoring subsequent bytes. This
   # prevents live lines from being replayed twice or overwriting newer state.
   offset=self.resume_from_log(p)
-  self.worker=threading.Thread(target=self.watch,args=(p,self.stop,offset),daemon=True)
+  self.worker=threading.Thread(target=self.watch,args=(p,self.stop,offset,self._watch_generation),daemon=True)
   self.worker.start();self.status.set('監視中: '+p.name)
  def resume_from_log(self,p):
   # The most recent ECLIPTICA state in this VRChat session is a best-effort hint.
@@ -760,21 +762,21 @@ class App:
    if begin and data:
     first=data.find(b'\n');data=data[first+1:] if first>=0 else b''
    raw=data.decode('utf-8','replace')
-   events=[]
+   last_event=None
    for line in raw.splitlines():
     self.meter.ingest(line,replay=True)
-    if re.search(r'\[Behaviour\]\s*(?:Entering Room:|OnLeftRoom\b)',line,re.I):events.clear()
-    if 'ECLIPTICA - now in intermission' in line:events.append(('休憩',None))
-    elif 'ECLIPTICA - now in lobby' in line:events.append(('ロビー',None))
+    if re.search(r'\[Behaviour\]\s*(?:Entering Room:|OnLeftRoom\b)',line,re.I):last_event=None
+    if 'ECLIPTICA - now in intermission' in line:last_event=('休憩',None)
+    elif 'ECLIPTICA - now in lobby' in line:last_event=('ロビー',None)
     else:
      b=re.search(r'ECLIPTICA - now fighting boss:\s*(.+?)\s+on phase:',line)
      st=re.search(r'ECLIPTICA - now in stage:\s*(.+?)\s+on phase:',line)
      if b:
       n=re.sub(r'\(Clone\)$','',b.group(1).strip(),flags=re.I)
-      self.discovered_bosses.add(n);events.append(('ボス',n))
-     elif st:events.append(('戦闘',st.group(1).strip()))
-   if events:
-    kind,name=events[-1]
+      self.discovered_bosses.add(n);last_event=('ボス',n)
+     elif st:last_event=('戦闘',st.group(1).strip())
+   if last_event:
+    kind,name=last_event
     if kind=='ボス':self.handle_boss(name)
     elif kind=='ロビー':self.handle_event('途中参加・ロビー','ロビー')
     else:self.handle_event('途中参加・推定'+kind,kind)
@@ -785,55 +787,94 @@ class App:
  def stop_watch(self):
   self._watch_generation+=1
   self.stop.set();self.status.set('■ 自動切り替えを停止しました')
- def watch(self,p,signal,offset=None):
-  # Start at EOF: old events must not play when the app starts mid-game.
-  # Reopen new VRChat logs automatically when VRChat restarts.
+ def drain_watch_events(self):
+  # Only the GUI thread touches Tk; stale events from an old watcher are ignored.
+  for _ in range(100):
+   try:generation,kind,value=self.watch_events.get_nowait()
+   except queue.Empty:break
+   if generation!=self._watch_generation or self.stop.is_set():continue
+   if kind=='phase':self.handle_event(value[0],value[1])
+   elif kind=='boss':self.handle_boss(value)
+   elif kind=='log':self.log.set(value)
+   elif kind=='status':self.status.set(value)
+  if self.root.winfo_exists():self.root.after(50,self.drain_watch_events)
+ def watch(self,p,signal,offset=None,generation=None):
+  # Read the log off-thread and deliver events through a generation-tagged queue.
+  if generation is None:generation=self._watch_generation
+  def emit(kind,value):
+   if not signal.is_set():self.watch_events.put((generation,kind,value))
+  f=None
   try:
-   f=p.open('r',encoding='utf-8',errors='replace')
+   f=p.open('rb')
    if offset is None:f.seek(0,2)
    else:f.seek(offset)
-   partial=''
+   partial=b'';skipping=False;next_discovery=0.0
    while not signal.is_set():
-    line=f.readline()
+    line=f.readline(65536)
     if not line:
-     time.sleep(.25)
+     if signal.wait(.25):break
+     now=time.monotonic()
+     if now<next_discovery:continue
+     next_discovery=now+1.0
      try:
+      # VRChat or log cleanup may truncate a file in place.
+      try:current_size=p.stat().st_size
+      except OSError:current_size=None
+      if current_size is not None and current_size<f.tell():
+       f.close();f=p.open('rb');partial=b'';skipping=False
+       with self.meter.lock:
+        if signal.is_set():break
+        self.meter.reset()
+       emit('status','ログが更新されたため監視を再開しました: '+p.name)
+       continue
       newest=max(LOG.glob('output_log_*.txt'),key=session_sort_key,default=None)
-      if newest and newest!=p and session_sort_key(newest)>session_sort_key(p):
-       nf=newest.open('r',encoding='utf-8',errors='replace')
+      try:current_key=session_sort_key(p)
+      except OSError:current_key=None
+      if newest and newest!=p and (current_key is None or session_sort_key(newest)>current_key):
+       nf=newest.open('rb')
        nf.seek(0,2)
        with self.meter.lock:
         if signal.is_set():nf.close();break
         self.meter.reset()
-       f.close();f=nf;p=newest;partial=''
-       self.root.after(0,lambda path=str(p):self.log.set(path))
-       self.root.after(0,lambda name=p.name:self.status.set('新しいログへ自動切替: '+name))
+       f.close();f=nf;p=newest;partial=b'';skipping=False
+       emit('log',str(p));emit('status','新しいログへ自動切替: '+p.name)
      except OSError:pass
      continue
+    # Bound memory if a corrupted log contains an exceptionally long line.
+    if skipping:
+     if line.endswith(b'\n'):skipping=False
+     continue
+    if len(partial)+len(line)>1_048_576:
+     partial=b'';skipping=not line.endswith(b'\n');continue
     partial+=line
-    if not partial.endswith('\n'):continue
-    line=partial;partial=''
+    if not partial.endswith(b'\n'):continue
+    line=partial.decode('utf-8','replace');partial=b''
     # Keep the live HUD and target alerts updated as new log lines arrive.
     with self.meter.lock:
      if signal.is_set():break
-     for transition in self.meter.ingest(line):self.combat_events.put(transition)
+     for transition in self.meter.ingest(line):
+      # The HUD consumes boss/target events only; queuing every damage hit
+      # would let an ignored backlog grow indefinitely during busy fights.
+      if transition[0] in ('boss','target_on','target_off','target_switch'):
+       self.combat_events.put((generation,transition[0],transition[1]))
     if 'ECLIPTICA - now in intermission' in line:
-     self.root.after(0,lambda:self.handle_event('休憩開始','休憩'))
+     emit('phase',('休憩開始','休憩'))
     elif 'ECLIPTICA - now in lobby' in line:
-     self.root.after(0,lambda:self.handle_event('ロビーに戻りました','ロビー'))
+     emit('phase',('ロビーに戻りました','ロビー'))
     else:
      stage=re.search(r'ECLIPTICA - now in stage:\s*(.+?)\s+on phase:',line)
      boss=re.search(r'ECLIPTICA - now fighting boss:\s*(.+?)\s+on phase:',line)
      if stage:
       # Never deduplicate by stage name: the same stage may appear in later rounds.
       name=stage.group(1).strip()
-      self.root.after(0,lambda n=name:self.handle_event('戦闘開始: '+n,'戦闘'))
+      emit('phase',('戦闘開始: '+name,'戦闘'))
      elif boss:
       name=re.sub(r'\(Clone\)$','',boss.group(1).strip(),flags=re.I).strip()
-      self.root.after(0,lambda n=name:self.handle_boss(n))
-   f.close()
+      emit('boss',name)
   except Exception as e:
-   self.root.after(0,lambda msg=str(e):self.status.set('ログ読み込み失敗: '+msg))
+   emit('status','ログ読み込み失敗: '+str(e))
+  finally:
+   if f is not None:f.close()
  def handle_event(self,description,phase):
   self.event_status.set('検知イベント: '+description)
   if phase=='ロビー':

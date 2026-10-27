@@ -61,6 +61,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_combat_real
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_watch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_alert_sound
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_party_relay

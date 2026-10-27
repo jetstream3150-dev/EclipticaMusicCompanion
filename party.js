@@ -60,6 +60,7 @@
       this.members = [];
       this.ownId = '';
       this.lastSend = 0;
+      this.lastPayload = '';
       this.timer = null;
       this.retryTimer = null;
       this.attempt = 0;
@@ -104,7 +105,7 @@
       socket.onclose = event => {
         if (this.socket !== socket) return;
         root.clearTimeout(this.timer); this.timer = null;
-        this.socket = null; this.ownId = ''; this.members = []; this.lastSend = 0;
+        this.socket = null; this.ownId = ''; this.members = []; this.lastSend = 0; this.lastPayload = '';
         if (event && event.code === 1008) {
           this.connection = null; this.status = '接続拒否（コードや人数を確認）'; this.notify(); return;
         }
@@ -125,15 +126,18 @@
         if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > MAX_VALUE) return;
         data[name] = value;
       }
-      this.lastSend = now;
-      try { this.socket.send(JSON.stringify(data)); } catch (_) { this.disconnect(); }
+      const payload = JSON.stringify(data);
+      // Keep the relay alive, but avoid repeatedly broadcasting unchanged data.
+      if (payload === this.lastPayload && now - this.lastSend < 60000) return;
+      try { this.socket.send(payload); this.lastSend = now; this.lastPayload = payload; }
+      catch (_) { this.disconnect(); }
     }
     disconnect() {
       root.clearTimeout(this.timer); this.timer = null;
       root.clearTimeout(this.retryTimer); this.retryTimer = null;
       this.connection = null; this.attempt = 0;
       const socket = this.socket;
-      this.socket = null; this.ownId = ''; this.members = []; this.lastSend = 0; this.status = '未接続';
+      this.socket = null; this.ownId = ''; this.members = []; this.lastSend = 0; this.lastPayload = ''; this.status = '未接続';
       if (socket) socket.close();
       this.notify();
     }

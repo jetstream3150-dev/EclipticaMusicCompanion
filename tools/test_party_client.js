@@ -33,9 +33,15 @@ socket.onmessage({data: JSON.stringify({type: 'roster', members: [{id: 'a'.repea
 assert.equal(view.members.length, 1);
 client.update({dps: 12, boss_damage: 50, total_damage: 100, job: 'Nekomancer', own_name: 'must not be sent', raw_log: 'must not be sent'}, true);
 assert.deepEqual(socket.sent[1], {type: 'metrics', monitoring: true, job: 'Nekomancer', dps: 12, boss_damage: 50, total_damage: 100});
+client.lastSend -= 2000;
+client.update({dps: 12, boss_damage: 50, total_damage: 100, job: 'Nekomancer'}, true);
+assert.equal(socket.sent.length, 2, 'unchanged values should not be repeatedly broadcast');
+client.lastSend -= 60000;
+client.update({dps: 12, boss_damage: 50, total_damage: 100, job: 'Nekomancer'}, true);
+assert.equal(socket.sent.length, 3, 'heartbeat should still be sent');
 client.lastSend = 0;
 client.update({dps: 12, boss_damage: 50, total_damage: 100, job: 'Nekomancer'}, false);
-assert.deepEqual(socket.sent[2], {type: 'metrics', monitoring: false, job: '', dps: 0, boss_damage: 0, total_damage: 0});
+assert.deepEqual(socket.sent[3], {type: 'metrics', monitoring: false, job: '', dps: 0, boss_damage: 0, total_damage: 0});
 socket.onclose({code: 1006});
 assert.equal(view.status, '再接続待ち');
 client.disconnect();

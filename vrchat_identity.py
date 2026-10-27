@@ -21,6 +21,7 @@ USER_ID_SUFFIX = re.compile(r'\s+\(usr_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 # Order sessions by the timestamp embedded in their filenames, not solely by
 # mtime; never fall back to an older session's authenticated name.
 LOG_FILENAME = re.compile(r'^output_log_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.txt$', re.I)
+AUTH_MARKER_BYTES = re.compile(rb'User Authenticated:', re.I)
 
 def session_sort_key(path: Path):
     """Prefer the latest named VRChat session, even if an older log is touched."""
@@ -56,17 +57,23 @@ def read_authenticated_name(path: Path) -> str:
     size = path.stat().st_size
     with path.open('rb') as handle:
         if size <= 6_000_000:
-            raw = handle.read().decode('utf-8', 'replace')
+            raw = handle.read(size)
         else:
-            first = handle.read(2_000_000).decode('utf-8', 'replace')
+            first = handle.read(2_000_000)
+            # A chunk boundary can bisect a name; use complete lines only.
+            first = first[:first.rfind(b'\n') + 1]
             handle.seek(max(0, size - 4_000_000))
-            tail = handle.read().decode('utf-8', 'replace')
+            tail = handle.read(4_000_000)
             # The first line of an arbitrary tail chunk may be incomplete.
-            tail = tail.partition('\n')[2] if tail else ''
-            raw = first + '\n' + tail
+            tail = tail.partition(b'\n')[2] if tail else b''
+            raw = first + b'\n' + tail
+    # A still-growing log may end in half of an authentication event.
+    raw = raw[:raw.rfind(b'\n') + 1]
     result = ''
     for line in raw.splitlines():
-        found = parse_authenticated_name(line)
+        if not AUTH_MARKER_BYTES.search(line):
+            continue
+        found = parse_authenticated_name(line.decode('utf-8', 'replace'))
         if found:
             result = found
     return result
