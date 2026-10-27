@@ -1,176 +1,62 @@
-name: Build Windows App
+name: Security investigation of Windows build 34
 
 on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
-  build:
-    runs-on: windows-2022
-    timeout-minutes: 30
-
+  scan_existing_artifact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v5
-
-      - name: Set up Python 3.14.10
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.14.10'
-
-      - name: Set up Node.js 24 for WebSocket tests
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-
-      - name: Install pinned build dependencies
-        shell: pwsh
+      - name: Retrieve the exact blocked ZIP and verify its digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m pip install --only-binary=:all: -r requirements.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m pip install --only-binary=:all: pip-audit==2.10.1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m pip install --only-binary=:all: -r relay/requirements.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          set -euo pipefail
+          gh api repos/jetstream3150-dev/EclipticaMusicCompanion/actions/artifacts/12746474629/zip > "$RUNNER_TEMP/build34.zip"
+          echo "14f62b44a1d1b523568d6e9e2e1a472d271471d05c1481cf17f3ad8c3cc041d5  $RUNNER_TEMP/build34.zip" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/build34"
+          unzip -q "$RUNNER_TEMP/build34.zip" -d "$RUNNER_TEMP/build34"
+          echo 'Artifact digest matches the build 34 ZIP.'
 
-      - name: Audit installed direct dependencies
-        shell: pwsh
+      - name: Install ClamAV and update malware signatures
+        shell: bash
         run: |
-          python -m pip_audit -r requirements.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m pip_audit -r relay/requirements.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends clamav clamav-freshclam
+          sudo systemctl stop clamav-freshclam.service || true
+          sudo freshclam --stdout
+          clamscan --version
 
-      - name: Verify Python sources and lite feature gates
-        shell: pwsh
+      - name: Check scanner with the harmless EICAR test file
+        shell: bash
         run: |
-          python -m compileall -q EclipticaMusic.py combat_meter.py vrchat_identity.py boss_weakness.py alert_sound.py tools relay
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python test_v18.py --gui
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/test_lite.py
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # tools/test_identity.py must run as a module for imports to resolve.
-          python -m tools.test_identity
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m tools.test_weakness
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m tools.test_combat_real
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m tools.test_watch
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m tools.test_alert_sound
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m tools.test_party_relay
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m tools.test_party_hud
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m tools.test_tcl_runtime
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --check party.js
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node tools/test_party_client.js
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path(os.environ['RUNNER_TEMP']) / 'eicar-test.com'
+          p.write_bytes(rb'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*')
+          PY
+          set +e
+          clamscan --no-summary "$RUNNER_TEMP/eicar-test.com"
+          result=$?
+          set -e
+          rm -f "$RUNNER_TEMP/eicar-test.com"
+          if [ "$result" -ne 1 ]; then
+            echo 'Scanner self-test failed or did not detect the harmless test file.' >&2
+            exit 1
+          fi
+          echo 'Scanner detected the harmless EICAR test file.'
 
-      - name: Build Windows folder with Tcl Tk runtime
-        shell: pwsh
+      - name: Scan the exact ZIP and extracted files
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          # Current Windows Tcl/Tk 9 embeds its libraries in the DLLs via zipfs.
-          # Older Python installations expose ordinary Tcl and Tk directories.
-          $tclDir = (& python -c "import tkinter as tk; print(tk.Tcl().eval('info library'))").Trim()
-          $pyiArgs = @(
-            '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir', '--windowed',
-            '--noupx', '--name', 'EclipticaMusicCompanion',
-            '--exclude-module', 'yt_dlp', '--exclude-module', 'imageio_ffmpeg',
-            '--add-data', 'player.html;.', '--add-data', 'unified.html;.',
-            '--add-data', 'engine.js;.',
-            '--add-data', 'party.js;.',
-            '--add-data', 'boss_weakness_data.txt;.',
-            '--add-data', 'LICENSE_EclipticaHUD-C.txt;.'
-          )
-          if ($tclDir.StartsWith('//zipfs:/')) {
-            # PyInstaller 6.22's tkinter hook collects the Tcl/Tk DLLs; the
-            # library scripts live inside those DLLs, not in filesystem paths.
-            Write-Host "Tcl/Tk embedded library: $tclDir"
-          } else {
-            $tkVersion = (& python -c "import tkinter as tk; print(tk.TkVersion)").Trim()
-            $tkDir = Join-Path (Split-Path -Parent $tclDir) ("tk" + $tkVersion)
-            if (-not (Test-Path (Join-Path $tclDir 'init.tcl'))) { throw "Cannot find Tcl init.tcl in $tclDir" }
-            if (-not (Test-Path (Join-Path $tkDir 'tk.tcl'))) { throw "Cannot find Tk tk.tcl in $tkDir" }
-            $pyiArgs += @('--add-data', ($tclDir + ';_tcl_data'), '--add-data', ($tkDir + ';_tk_data'))
-          }
-          $pyiArgs += 'EclipticaMusic.py'
-          & python @pyiArgs
-          if ($LASTEXITCODE -ne 0) { throw "PyInstaller exited with $LASTEXITCODE" }
-
-      - name: Validate bundled Tcl Tk and run actual EXE smoke test
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $root = 'dist/EclipticaMusicCompanion'
-          $assets = @(
-            '_internal/_tkinter.pyd',
-            '_internal/python314.dll'
-          )
-          foreach ($asset in $assets) {
-            $path = Join-Path $root $asset
-            if (-not (Test-Path $path)) { throw "Missing Tcl/Tk runtime asset: $path" }
-          }
-          $tcl9 = (Get-ChildItem (Join-Path $root '_internal') -Filter 'tcl9*.dll' |
-            Where-Object { $_.Name -notlike 'tcl9tk*' } | Select-Object -First 1)
-          $tk9 = Get-ChildItem (Join-Path $root '_internal') -Filter 'tcl9tk*.dll' | Select-Object -First 1
-          if (-not ($tcl9 -and $tk9)) {
-            foreach ($asset in @('_internal/_tcl_data/init.tcl', '_internal/_tk_data/tk.tcl',
-                                 '_internal/tcl86t.dll', '_internal/tk86t.dll')) {
-              if (-not (Test-Path (Join-Path $root $asset))) { throw "Missing Tcl/Tk runtime asset: $asset" }
-            }
-          }
-          # A headless option in EclipticaMusic.py initializes Tcl in the frozen EXE.
-          # It does not start the browser, the HUD, or the background server.
-          $env:ECLIPTICA_TK_SELF_TEST_REPORT = Join-Path $env:RUNNER_TEMP 'ecliptica-tk-test-error.txt'
-          $exe = (Resolve-Path (Join-Path $root 'EclipticaMusicCompanion.exe')).Path
-          $probe = Start-Process -FilePath $exe -ArgumentList '--tk-self-test' -Wait -PassThru
-          if ($probe.ExitCode -ne 0) {
-            if (Test-Path $env:ECLIPTICA_TK_SELF_TEST_REPORT) { Get-Content $env:ECLIPTICA_TK_SELF_TEST_REPORT }
-            throw "Frozen Tcl/Tk startup smoke test failed: exit code $($probe.ExitCode)"
-          }
-          Write-Host 'PASS: bundled Tcl/Tk libraries and frozen executable startup'
-
-      - name: Open the frozen app and HUD in an isolated GUI smoke test
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'ecliptica-gui-test'
-          $env:ECLIPTICA_GUI_SELF_TEST_REPORT = Join-Path $env:RUNNER_TEMP 'ecliptica-gui-test-error.txt'
-          $exe = (Resolve-Path 'dist/EclipticaMusicCompanion/EclipticaMusicCompanion.exe').Path
-          $probe = Start-Process -FilePath $exe -ArgumentList '--gui-self-test' -PassThru
-          if (-not $probe.WaitForExit(30000)) {
-            $probe.Kill()
-            throw 'Frozen GUI startup test timed out.'
-          }
-          if ($probe.ExitCode -ne 0) {
-            if (Test-Path $env:ECLIPTICA_GUI_SELF_TEST_REPORT) {
-              Get-Content $env:ECLIPTICA_GUI_SELF_TEST_REPORT
-            }
-            throw "Frozen GUI startup test failed: exit code $($probe.ExitCode)"
-          }
-          Write-Host 'PASS: frozen application and HUD initialized with boss data'
-
-      - name: Verify release contents and write SHA256 manifest
-        run: python tools/verify_release.py dist/EclipticaMusicCompanion
-
-      - name: Microsoft Defender scan (records unavailable status)
-        shell: pwsh
-        run: ./tools/windows_defender_scan.ps1 -ReleaseDir dist/EclipticaMusicCompanion
-
-      - name: Upload audited-lite distribution
-        uses: actions/upload-artifact@v6
-        with:
-          name: EclipticaMusicCompanion-Windows-test-build
-          path: dist/EclipticaMusicCompanion/
-          if-no-files-found: error
+          set -euo pipefail
+          clamscan --recursive --infected --alert-exceeds-max=yes --max-filesize=100M --max-scansize=300M --max-files=100000 --max-recursion=32 "$RUNNER_TEMP/build34.zip" "$RUNNER_TEMP/build34"
