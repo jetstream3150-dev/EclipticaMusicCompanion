@@ -67,6 +67,7 @@ jobs:
           # the different region can be found without uploading the test ZIP.
           data = section_data.get('.rdata', b'')
           print('OFFICIAL_RDATA_SIZE', len(data))
+          print('OFFICIAL_RDATA_BLOCK_66560_HEX', data[66560:67584].hex())
           for offset in range(0, len(data), 1024):
               print('OFFICIAL_RDATA_BLOCK', offset, hashlib.sha256(data[offset:offset+1024]).hexdigest())
           if any(sections.get(name) != digest for name, digest in expected.items()):
