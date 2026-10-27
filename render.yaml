@@ -1,0 +1,14 @@
+# Optional, untested deployment template. Creating a Render service is a
+# separate action; this file alone does not deploy anything or incur charges.
+services:
+  - type: web
+    name: ecliptica-party-relay
+    runtime: python
+    plan: free
+    region: singapore
+    autoDeployTrigger: 'off'
+    buildCommand: 'python -m pip install --only-binary=:all: -r relay/requirements.txt'
+    startCommand: python -m relay.party_relay --host 0.0.0.0 --port $PORT --behind-tls-proxy
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14.10
