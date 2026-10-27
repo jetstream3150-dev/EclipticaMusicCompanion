@@ -31,6 +31,9 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends clamav clamav-freshclam
           sudo systemctl stop clamav-freshclam.service || true
+          # The standalone clamscan used below does not run the clamd daemon.
+          # Disable only freshclam's optional daemon reload notification.
+          sudo sed -i '/^[[:space:]]*NotifyClamd[[:space:]]/d' /etc/clamav/freshclam.conf
           sudo freshclam --stdout
           clamscan --version
 
