@@ -1,65 +1,68 @@
-name: Security investigation of Windows build 34
+name: Investigate build 34 executable provenance
 
 on:
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
 
 jobs:
-  scan_existing_artifact:
+  inspect_official_bootloader:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
-      - name: Retrieve the exact blocked ZIP and verify its digest
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Download the official pinned Windows PyInstaller wheel
         shell: bash
         run: |
           set -euo pipefail
-          gh api repos/jetstream3150-dev/EclipticaMusicCompanion/actions/artifacts/12746474629/zip > "$RUNNER_TEMP/build34.zip"
-          echo "14f62b44a1d1b523568d6e9e2e1a472d271471d05c1481cf17f3ad8c3cc041d5  $RUNNER_TEMP/build34.zip" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/build34"
-          unzip -q "$RUNNER_TEMP/build34.zip" -d "$RUNNER_TEMP/build34"
-          echo 'Artifact digest matches the build 34 ZIP.'
+          mkdir -p "$RUNNER_TEMP/wheelhouse"
+          python -m pip download --only-binary=:all: --no-deps --platform win_amd64 --python-version 3.14 --implementation cp --abi cp314 'pyinstaller==6.22.3' --dest "$RUNNER_TEMP/wheelhouse"
 
-      - name: Install ClamAV and update malware signatures
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends clamav clamav-freshclam
-          sudo systemctl stop clamav-freshclam.service || true
-          # The standalone clamscan used below does not run the clamd daemon.
-          # Disable only freshclam's optional daemon reload notification.
-          sudo sed -i '/^[[:space:]]*NotifyClamd[[:space:]]/d' /etc/clamav/freshclam.conf
-          sudo freshclam --stdout
-          clamscan --version
-
-      - name: Check scanner with the harmless EICAR test file
+      - name: Compare executable code sections with build 34
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
+          import hashlib
           import os
           from pathlib import Path
-          p = Path(os.environ['RUNNER_TEMP']) / 'eicar-test.com'
-          p.write_bytes(rb'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*')
-          PY
-          set +e
-          clamscan --no-summary "$RUNNER_TEMP/eicar-test.com"
-          result=$?
-          set -e
-          rm -f "$RUNNER_TEMP/eicar-test.com"
-          if [ "$result" -ne 1 ]; then
-            echo 'Scanner self-test failed or did not detect the harmless test file.' >&2
-            exit 1
-          fi
-          echo 'Scanner detected the harmless EICAR test file.'
+          import struct
+          import zipfile
 
-      - name: Scan the exact ZIP and extracted files
-        shell: bash
-        run: |
-          set -euo pipefail
-          clamscan --recursive --infected --alert-exceeds-max=yes --max-filesize=100M --max-scansize=300M --max-files=100000 --max-recursion=32 "$RUNNER_TEMP/build34.zip" "$RUNNER_TEMP/build34"
+          wheels = list((Path(os.environ['RUNNER_TEMP']) / 'wheelhouse').glob('*.whl'))
+          if len(wheels) != 1:
+              raise RuntimeError('Expected exactly one pinned PyInstaller wheel')
+          wheel = wheels[0]
+          print('Wheel:', wheel.name)
+          print('Wheel SHA-256:', hashlib.sha256(wheel.read_bytes()).hexdigest())
+          with zipfile.ZipFile(wheel) as archive:
+              matches = [p for p in archive.namelist() if p.endswith('/Windows-64bit-intel/runw.exe')]
+              if len(matches) != 1:
+                  raise RuntimeError('Expected exactly one Windows x64 windowed bootloader')
+              boot = archive.read(matches[0])
+          print('Bootloader path:', matches[0])
+          print('Bootloader SHA-256:', hashlib.sha256(boot).hexdigest())
+          pe = struct.unpack_from('<I', boot, 0x3c)[0]
+          if boot[pe:pe+4] != b'PE\x00\x00':
+              raise RuntimeError('Invalid Windows executable header')
+          machine, count, _, _, _, optional_size, _ = struct.unpack_from('<HHIIIHH', boot, pe+4)
+          if machine != 0x8664:
+              raise RuntimeError('Expected Windows x64 executable')
+          base = pe + 24 + optional_size
+          sections = {}
+          for i in range(count):
+              offset = base + i * 40
+              name = boot[offset:offset+8].split(b'\0', 1)[0].decode('ascii', 'strict')
+              _, _, size, start = struct.unpack_from('<IIII', boot, offset+8)
+              sections[name] = hashlib.sha256(boot[start:start+size]).hexdigest()
+          expected = {
+              '.text': '67bdc7f5eeccf01180cd5b3621be7d0265efa6a44742496a7a6c6f9076ef4b1f',
+              '.rdata': '62f52c84f30e63a93cc3624bd5ed51324ca86a3291611734d79e74aff0b2f1b4',
+          }
+          for name, digest in expected.items():
+              print(name, 'official:', sections.get(name, 'missing'), 'build 34:', digest)
+          if any(sections.get(name) != digest for name, digest in expected.items()):
+              raise RuntimeError('Bootloader section differs from build 34; investigate before drawing conclusions')
+          print('PASS: build 34 executable code and read-only data match the pinned PyInstaller bootloader.')
+          print('LIMITATION: matching bootloader sections do not independently validate embedded application code or prove safety.')
+          PY
