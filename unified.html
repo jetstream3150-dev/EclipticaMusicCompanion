@@ -79,6 +79,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
    <label class="check"><input id="hud-alert" type="checkbox" checked>自分が狙われた時の警告音を鳴らす</label>
    <label class="check"><input id="hud-other-alert" type="checkbox">他人同士のターゲット変更も通知する</label>
    <label class="check"><input id="hud-weakness" type="checkbox" checked>HUDにボスの弱点・耐性を表示する</label>
+   <label class="check"><input id="hud-party" type="checkbox" checked>共有中は別のパーティーHUDを表示する</label>
    <label for="hud-volume">警告音量（BGMとは別） <span id="hud-volume-label">65</span>%</label><input id="hud-volume" type="range" min="0" max="100" value="65">
    <label for="hud-sound-path">カスタム警告音（WAV / MP3）</label><div class="row wide"><input id="hud-sound-path" type="text" placeholder="空欄なら標準音"><button class="btn small" id="hud-sound-pick">ファイル</button></div><p class="muted">WAVは16ビットPCM形式に対応します。ファイルがない場合や再生できない場合は標準音を鳴らします。</p>
    <div class="btns" style="margin-top:17px"><button class="btn primary" id="hud-save">✓ HUDの設定を保存</button><button class="btn" id="hud-test">♪ 警告音を試す</button></div>
@@ -88,6 +89,20 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
    <div class="twocol"><div><div class="smallcap">CURRENT BOSS</div><strong id="hud-current-boss">待機中</strong></div><div><div class="smallcap">TARGET (推定)</div><strong id="hud-current-target">未検出</strong></div>
    <div><div class="smallcap">DPS</div><strong id="hud-current-dps">0.0</strong></div><div><div class="smallcap">BOSS DAMAGE</div><strong id="hud-current-damage">0</strong></div></div>
    <p class="muted" id="hud-observation">ログの解析を待っています。</p>
+  </div>
+  <div class="card"><div class="cardh">パーティー共有 <small>試験機能・初期状態はOFF</small></div>
+   <p class="muted">接続すると、入力した名前・職業・DPS・ダメージ集計値が中継先と同じ招待コードの参加者に送られます。ログ本文は送信しません。中継先の運営者には接続元IPも見えます。名前は自己申告で、本人確認はありません。</p>
+   <label for="party-server">中継先URL（部屋を作る人のみ）</label><input id="party-server" type="url" placeholder="wss://..." autocomplete="off">
+   <label for="party-name">共有する名前（任意）</label><input id="party-name" type="text" maxlength="40" placeholder="空欄ならプレイヤー" autocomplete="off">
+   <label for="party-invite">招待コード（参加する人は貼り付け）</label><textarea id="party-invite" rows="3" autocomplete="off" spellcheck="false" style="width:100%;background:#0d1923;color:#edf7f8;border:1px solid #35505c;border-radius:9px;padding:10px"></textarea>
+   <p class="muted">招待コードを知っている人は参加できます。信頼できるメンバーにだけ共有してください。</p>
+   <div class="btns"><button class="btn" id="party-create">招待コードを作る</button><button class="btn" id="party-copy">コードをコピー</button></div>
+   <div class="btns" style="margin-top:9px"><button class="btn primary" id="party-connect">接続して共有</button><button class="btn" id="party-disconnect">共有を停止</button></div>
+   <p id="party-status" class="muted">未接続</p>
+   <label class="check"><input id="party-anonymous" type="checkbox">この画面で名前を隠す（中継先や他の参加者には送信されます）</label>
+   <label for="party-sort">並び順</label><select id="party-sort"><option value="dps">DPS順</option><option value="name">名前順</option><option value="job">職業順</option></select>
+   <div style="overflow:auto;margin-top:15px"><table style="width:100%;font-size:12px;text-align:left"><thead><tr><th>名前</th><th>職業</th><th>DPS</th><th>ボスダメージ</th></tr></thead><tbody id="party-members"></tbody></table></div>
+   <p class="muted">この機能には対応する中継先が必要です。同じVRChatインスタンスへの自動参加は未対応です。</p>
   </div>
   <div class="card"><div class="cardh">ボスの弱点・耐性 <small>参考情報</small></div><p id="hud-boss-weakness" class="muted">ボスの検出を待っています。</p><p class="muted">データに形態別の記載がない場合は共通情報を表示します。ゲームの更新などにより実際と異なる場合があります。</p></div>
   <div class="card"><div class="cardh">トークンと練習ダミー <small>ログから推定</small></div><p id="hud-tokens" class="muted">トークン：計測待ち</p><p id="hud-dummy" class="muted">練習ダミー：計測待ち</p><p class="muted">ログから確認できた分だけを集計します。休憩中の攻撃は練習ダミーとして計測し、ボスへのダメージとは分けます。</p></div>
@@ -112,6 +127,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
 <!-- Hidden YouTube/Audio engine is in the SAME web window; no second Edge window. -->
 <p id="status">待機中</p><div id="players"><div id="yt0"></div><div id="yt1"></div></div>
 <script src="/engine.js"></script>
+<script src="/party.js"></script>
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
 const $=id=>document.getElementById(id);
@@ -129,8 +145,8 @@ function fillBossDropdown(names,custom){
  if(previous&&values.includes(previous))box.value=previous;
  $('boss-count').textContent=values.length+' 種類（検出したボスを含む）';
 }
-function loadHudFields(o){$('hud-show').checked=!!o.show;$('hud-auto-name').checked=o.auto_name!==false;$('hud-name').readOnly=$('hud-auto-name').checked;$('hud-name').placeholder=$('hud-auto-name').checked?'VRChatから取得中…':'自分のVRChat表示名を入力';$('hud-detect-name').disabled=!$('hud-auto-name').checked;$('hud-name').value=o.name||'';$('hud-seconds').value=o.seconds||10;$('hud-opacity').value=o.opacity||92;$('hud-alert').checked=o.alert!==false;$('hud-other-alert').checked=!!o.other_alerts;$('hud-weakness').checked=o.show_weakness!==false;$('hud-sound-path').value=o.sound_path||'';$('hud-volume').value=o.volume??65;$('hud-volume-label').textContent=$('hud-volume').value;}
-function hudPayload(){return{show:$('hud-show').checked,auto_name:$('hud-auto-name').checked,name:$('hud-name').value.trim(),seconds:parseInt($('hud-seconds').value),opacity:parseInt($('hud-opacity').value),alert:$('hud-alert').checked,other_alerts:$('hud-other-alert').checked,show_weakness:$('hud-weakness').checked,sound_path:$('hud-sound-path').value.trim(),volume:parseInt($('hud-volume').value)}}
+function loadHudFields(o){$('hud-show').checked=!!o.show;$('hud-auto-name').checked=o.auto_name!==false;$('hud-name').readOnly=$('hud-auto-name').checked;$('hud-name').placeholder=$('hud-auto-name').checked?'VRChatから取得中…':'自分のVRChat表示名を入力';$('hud-detect-name').disabled=!$('hud-auto-name').checked;$('hud-name').value=o.name||'';$('hud-seconds').value=o.seconds||10;$('hud-opacity').value=o.opacity||92;$('hud-alert').checked=o.alert!==false;$('hud-other-alert').checked=!!o.other_alerts;$('hud-weakness').checked=o.show_weakness!==false;$('hud-party').checked=o.show_party!==false;$('hud-sound-path').value=o.sound_path||'';$('hud-volume').value=o.volume??65;$('hud-volume-label').textContent=$('hud-volume').value;}
+function hudPayload(){return{show:$('hud-show').checked,auto_name:$('hud-auto-name').checked,name:$('hud-name').value.trim(),seconds:parseInt($('hud-seconds').value),opacity:parseInt($('hud-opacity').value),alert:$('hud-alert').checked,other_alerts:$('hud-other-alert').checked,show_weakness:$('hud-weakness').checked,show_party:$('hud-party').checked,sound_path:$('hud-sound-path').value.trim(),volume:parseInt($('hud-volume').value)}}
 function fillMusic(){if(!model)return;currentMusicKey=$('music-diff').value+'|'+$('music-phase').value;$('music-track').value=model.music[currentMusicKey]||'';$('music-fallback').value=model.fallback[currentMusicKey]||''}
 function fillBoss(){if(!model)return;currentBoss=$('boss-name').value.trim();$('boss-track').value=model.boss[currentBoss]||'';$('boss-fallback').value=model.fallback['boss|'+currentBoss]||''}
 async function loadConfig(first=false){const x=await request('/api/config');const prevKey=currentMusicKey,prevBoss=currentBoss;
@@ -161,6 +177,38 @@ function captureBoss(){return{boss:currentBoss,track:$('boss-track').value.trim(
 async function saveBoss(silent=false){if(!currentBoss)return;const d=captureBoss();model.boss[currentBoss]=d.track;model.fallback['boss|'+currentBoss]=d.fallback;return safe('set_boss',d,silent)}
 function queueAutosave(fn){clearTimeout(autoSaveTimer);autoSaveTimer=setTimeout(fn,650)}
 function selectPanel(id){document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===id));document.querySelectorAll('.navitem').forEach(el=>el.classList.toggle('active',el.dataset.tab===id))}
+let partyView={status:'未接続',members:[],ownId:''};
+let partyHudTimer=null,partyHudPending=[],partyHudRequest=Promise.resolve();
+function schedulePartyHud(rows){
+ partyHudPending=rows;
+ if(partyHudTimer!==null)return;
+ partyHudTimer=setTimeout(()=>{
+  partyHudTimer=null;const next=partyHudPending;
+  partyHudRequest=partyHudRequest.then(()=>safe('party_roster',{rows:next},true));
+ },500);
+}
+function renderParty(view){
+ if(view)partyView=view;
+ $('party-status').textContent=partyView.status;
+ const locked=partyView.status==='接続中'||partyView.status==='接続中（共有中）'||partyView.status==='再接続待ち';
+ for(const id of ['party-server','party-name','party-invite','party-create','party-connect'])$(id).disabled=locked;
+ const sort=$('party-sort').value,anonymous=$('party-anonymous').checked;
+ const members=[...partyView.members].sort((a,b)=>sort==='name'?a.name.localeCompare(b.name):sort==='job'?a.job.localeCompare(b.job):b.dps-a.dps);
+ const rows=members.map((member,i)=>{const row=document.createElement('tr');
+  for(const value of [anonymous?'メンバー '+(i+1):member.name+(member.id===partyView.ownId?'（自分）':''),member.monitoring?(member.job||'—'):'監視停止中',member.monitoring?member.dps.toFixed(1):'—',member.monitoring?member.boss_damage.toLocaleString():'—']){
+   const cell=document.createElement('td');cell.textContent=value;row.appendChild(cell);
+  }
+  return row;
+ });
+ $('party-members').replaceChildren(...rows);
+ schedulePartyHud(members.map((member,i)=>({name:anonymous?'メンバー '+(i+1):member.name,job:member.monitoring?member.job:'停止中',dps:member.dps,boss_damage:member.boss_damage})));
+}
+const party=new EMCParty.Client(renderParty);
+$('party-create').addEventListener('click',()=>{try{const invite=EMCParty.createInvite($('party-server').value);party.disconnect();$('party-invite').value=invite;toast('招待コードを作成しました。信頼できる人だけに共有してください。')}catch(e){toast(e.message,true)}});
+$('party-copy').addEventListener('click',async()=>{try{EMCParty.parseInvite($('party-invite').value);await navigator.clipboard.writeText($('party-invite').value);toast('招待コードをコピーしました')}catch(e){toast('コピーできませんでした。コードを選択してコピーしてください。',true)}});
+$('party-connect').addEventListener('click',()=>{try{party.connect($('party-invite').value,$('party-name').value)}catch(e){toast(e.message,true)}});
+$('party-disconnect').addEventListener('click',()=>party.disconnect());
+for(const id of ['party-sort','party-anonymous'])$(id).addEventListener('change',()=>renderParty());
 for(const nav of document.querySelectorAll('.navitem'))nav.addEventListener('click',()=>selectPanel(nav.dataset.tab));
 for(const id of ['music-diff','music-phase'])$(id).addEventListener('change',()=>{clearTimeout(autoSaveTimer);saveMusic(true);fillMusic()});
 for(const id of ['music-track','music-fallback'])$(id).addEventListener('input',()=>queueAutosave(()=>saveMusic(true)));
@@ -206,6 +254,7 @@ let previousStatus='';async function poll(){try{
  $('engine-dot').classList.toggle('ok',v.player.includes('再生中')||v.player.includes('有効化')||v.player.includes('ループ再生'));
  $('monitor-label').textContent=v.monitoring?'監視中':'停止中';$('monitor-dot').classList.toggle('ok',v.monitoring);
  const c=v.combat||{};
+ party.update(c,!!v.monitoring);
  if($('hud-auto-name').checked&&document.activeElement!==$('hud-name'))$('hud-name').value=c.own_name||'';
  if(v.identity_status)$('hud-name-status').textContent=v.identity_status;
  $('hud-current-boss').textContent=c.boss||'待機中';$('hud-current-target').textContent=c.is_targeted?'⚠ あなたがターゲット（推定）':(c.target||'未検出');
@@ -215,12 +264,13 @@ let previousStatus='';async function poll(){try{
  $('hud-dummy').textContent=(c.dummy_hits??0)?'練習ダミー（推定）：DPS '+(c.dummy_dps??0).toFixed(1)+' / 合計 '+(c.dummy_damage??0).toLocaleString()+(c.dummy_active?'（計測中）':'（直近の記録）'):'練習ダミー：休憩中の攻撃を待っています。';
  $('hud-observation').textContent='解析したダメージイベント '+(c.events_found??0)+'件 / '+(c.dps_window??10)+'秒DPS。イベントが0件ならログ形式を確認してください。';
  if(!$('hud-show').matches(':focus')&&v.overlay_visible!==$('hud-show').checked){$('hud-show').checked=!!v.overlay_visible;}
+ if(!$('hud-party').matches(':focus')&&v.party_overlay_enabled!==$('hud-party').checked){$('hud-party').checked=!!v.party_overlay_enabled;}
  if(v.status!==previousStatus){previousStatus=v.status}
  if(v.revision>revision&&document.activeElement.tagName!=='INPUT')await loadConfig(false);
  const s=await fetch('/state',{cache:'no-store'}).then(r=>r.json());$('now-playing').textContent=s.stop?'停止中':s.track||'曲はまだ選ばれていません';
  }catch(e){$('app-status').textContent='アプリとの通信待ち: '+e.message;}
  setTimeout(poll,1350)}
-window.addEventListener('pagehide',()=>{const data=new Blob(['bye'],{type:'text/plain'});navigator.sendBeacon('/api/goodbye',data)});
+window.addEventListener('pagehide',()=>{party.disconnect();const data=new Blob(['bye'],{type:'text/plain'});navigator.sendBeacon('/api/goodbye',data)});
 loadConfig(true).then(poll).catch(e=>toast('設定の読み込みに失敗しました: '+e.message,true));
 </script>
 </body></html>

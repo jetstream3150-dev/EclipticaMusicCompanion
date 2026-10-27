@@ -61,6 +61,15 @@ def test_app():
  a.meter.ingest('2026 Debug - Dealing 30 STRIKE damage')
  a.update_hud_loop();root.update()
  assert 'ダミー' in a.hud.tracker_lbl.cget('text')
+ a.api_action({'action':'party_roster','rows':[{'name':'Alice','job':'Spellhammer','dps':42.5,'boss_damage':425}]})
+ root.update()
+ assert a.party_hud is not None and a.party_hud.winfo_exists()
+ assert 'Alice' in a.party_hud.list_lbl.cget('text')
+ try:a.api_action({'action':'party_roster','rows':[{'name':'Alice','job':'','dps':float('nan'),'boss_damage':0}]})
+ except ValueError:pass
+ else:raise AssertionError('invalid party metric was accepted')
+ a.api_action({'action':'party_roster','rows':[]})
+ root.update();assert a.party_hud.state()=='withdrawn'
  a.api_action({'action':'overlay_settings','show':False,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
  assert a.api_config()['overlay']['sound_path']=='C:/test/missing.mp3'
  root.update();assert a.hud.state()=='withdrawn'

@@ -1,4 +1,4 @@
-import json,os,re,threading,time,webbrowser,mimetypes,sys,subprocess,shutil,queue
+import json,os,re,threading,time,webbrowser,mimetypes,sys,subprocess,shutil,queue,math,unicodedata
 from pathlib import Path
 from urllib.parse import urlparse,parse_qs,unquote
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
@@ -82,8 +82,8 @@ class Handler(BaseHTTPRequestHandler):
     self._json_response({'ok':True,'result':data})
    except Exception as exc:self._json_response({'ok':False,'error':str(exc)[:220]},503)
    return
-  if u.path in ('/ui','/engine.js'):
-   target=BASE/('unified.html' if u.path=='/ui' else 'engine.js')
+  if u.path in ('/ui','/engine.js','/party.js'):
+   target=BASE/('unified.html' if u.path=='/ui' else u.path.lstrip('/'))
    if not target.is_file():self.send_error(404);return
    b=target.read_bytes();self.send_response(200)
    self.send_header('Content-Type','text/html; charset=utf-8' if u.path=='/ui' else 'application/javascript; charset=utf-8')
@@ -195,11 +195,33 @@ class BattleHUD(tk.Toplevel):
   self.border.config(bg='#aa3646' if targeted else '#164e55')
   self.note.config(text='集計イベント %d件  /  %d秒DPS  • ドラッグ移動'%(v['events_found'],v['dps_window']))
 
+class PartyHUD(tk.Toplevel):
+ """A separate, draggable desktop window for the locally displayed roster."""
+ def __init__(self,app):
+  super().__init__(app.root)
+  self.app=app;self.overrideredirect(True);self.attributes('-topmost',True)
+  self.geometry('362x160+430+75');self.configure(bg='#0d1721');self.start_drag=None
+  content=tk.Frame(self,bg='#0d1721',padx=12,pady=9,highlightbackground='#164e55',highlightthickness=1);content.pack(fill='both',expand=True)
+  header=tk.Frame(content,bg='#0d1721');header.pack(fill='x')
+  title=tk.Label(header,text='PARTY  /  DPS',font=('Segoe UI',10,'bold'),bg='#0d1721',fg='#67eee1',anchor='w');title.pack(side='left',fill='x',expand=True)
+  close=tk.Label(header,text='✕',font=('Segoe UI',11,'bold'),bg='#0d1721',fg='#9bb0ba',cursor='hand2');close.pack(side='right')
+  close.bind('<Button-1>',lambda e:self.app.hide_party_hud_from_window())
+  for widget in (header,title):
+   widget.bind('<ButtonPress-1>',self.drag_start);widget.bind('<B1-Motion>',self.drag)
+  self.list_lbl=tk.Label(content,text='',font=('Segoe UI',9),bg='#0d1721',fg='#edf7f8',anchor='nw',justify='left',wraplength=320);self.list_lbl.pack(fill='both',expand=True,pady=(8,0))
+ def drag_start(self,event):self.start_drag=(event.x_root-self.winfo_x(),event.y_root-self.winfo_y())
+ def drag(self,event):
+  if self.start_drag:self.geometry('+%d+%d'%(event.x_root-self.start_drag[0],event.y_root-self.start_drag[1]))
+ def refresh(self,rows,opacity):
+  self.attributes('-alpha',max(.3,min(1,float(opacity)/100)))
+  self.list_lbl.config(text='\n'.join('%s  /  %s  |  DPS %.1f  /  DMG %.0f'%(r['name'][:12],r['job'][:9] or '—',r['dps'],r['boss_damage']) for r in rows))
+  self.geometry('362x%d'%max(90,min(440,65+len(rows)*30)))
+
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.identity_status='自動取得の確認待ち';self.identity_log='';self.build();self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.party_hud=None;self.party_rows=[];self.identity_status='自動取得の確認待ち';self.identity_log='';self.build();self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def _overlay_options(self):
-  defaults={'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'sound_path':'','volume':65,'seconds':10,'opacity':92}
+  defaults={'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'show_party':True,'sound_path':'','volume':65,'seconds':10,'opacity':92}
   saved=self.cfg.get('overlay',{})
   if isinstance(saved,dict):
    defaults.update({k:v for k,v in saved.items() if k in defaults})
@@ -237,6 +259,14 @@ class App:
   if self.root.winfo_exists():self.root.after(15000,self.periodic_identity_refresh)
  def hide_overlay_from_window(self):
   self.toggle_hud(False);self.save(quiet=True);self.revision+=1
+ def hide_party_hud_from_window(self):
+  self.overlay_cfg['show_party']=False;self.refresh_party_hud();self.save(quiet=True);self.revision+=1
+ def refresh_party_hud(self):
+  visible=bool(self.overlay_cfg.get('show') and self.overlay_cfg.get('show_party',True) and self.party_rows)
+  if visible:
+   if self.party_hud is None or not self.party_hud.winfo_exists():self.party_hud=PartyHUD(self)
+   self.party_hud.refresh(self.party_rows,self.overlay_cfg.get('opacity',92));self.party_hud.deiconify()
+  elif self.party_hud is not None and self.party_hud.winfo_exists():self.party_hud.withdraw()
  def toggle_hud(self,visible):
   self.overlay_cfg['show']=bool(visible)
   if visible:
@@ -244,6 +274,7 @@ class App:
     self.hud=BattleHUD(self)
    self.hud.deiconify();self.hud.lift()
   elif self.hud is not None and self.hud.winfo_exists():self.hud.withdraw()
+  self.refresh_party_hud()
  def update_hud_loop(self):
   for _ in range(100):
    try:kind,value=self.combat_events.get_nowait()
@@ -797,7 +828,7 @@ class App:
   combat=self.meter.snapshot()
   return {'status':self.status.get(),'event':self.event_status.get(),
     'player':self.player_status.get(),'monitoring':bool(self.worker and self.worker.is_alive() and not self.stop.is_set()),
-    'revision':self.revision,'volume':self.volume.get(),'combat':combat,'weakness':lookup_weakness(combat['boss'],str(BASE/'boss_weakness_data.txt')),'overlay_visible':bool(self.overlay_cfg['show']),'identity_status':self.identity_status}
+    'revision':self.revision,'volume':self.volume.get(),'combat':combat,'weakness':lookup_weakness(combat['boss'],str(BASE/'boss_weakness_data.txt')),'overlay_visible':bool(self.overlay_cfg['show']),'party_overlay_enabled':bool(self.overlay_cfg.get('show_party',True)),'identity_status':self.identity_status}
  def api_action(self,d):
   action=d.get('action','')
   if not isinstance(action,str):raise ValueError('不正な操作です')
@@ -805,6 +836,20 @@ class App:
    x=d.get(name,'')
    if not isinstance(x,str) or len(x)>limit:raise ValueError(name+'の文字数が不正です')
    return x.strip()
+  if action=='party_roster':
+   rows=d.get('rows')
+   if not isinstance(rows,list) or len(rows)>12:raise ValueError('パーティー表示の人数が不正です')
+   clean=[]
+   for row in rows:
+    if not isinstance(row,dict):raise ValueError('パーティー表示が不正です')
+    name=row.get('name','');job=row.get('job','')
+    if any(not isinstance(v,str) or len(v)>40 or any(unicodedata.category(ch).startswith('C') for ch in v) for v in (name,job)):
+     raise ValueError('パーティー表示名が不正です')
+    dps=row.get('dps');damage=row.get('boss_damage')
+    if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or not 0<=v<=1_000_000_000_000 for v in (dps,damage)):
+     raise ValueError('パーティー集計値が不正です')
+    clean.append({'name':name,'job':job,'dps':dps,'boss_damage':damage})
+   self.party_rows=clean;self.refresh_party_hud();return 'パーティー表示を更新しました'
   if action=='overlay_detect_name':
    if not self.overlay_cfg.get('auto_name',True):
     return '自動取得をONにしてからお試しください'
@@ -823,12 +868,14 @@ class App:
     if not isinstance(d.get(key),bool):raise ValueError('HUDのチェック項目が不正です')
    show_weakness=d.get('show_weakness',True)
    if not isinstance(show_weakness,bool):raise ValueError('弱点表示の指定が不正です')
+   show_party=d.get('show_party',self.overlay_cfg.get('show_party',True))
+   if not isinstance(show_party,bool):raise ValueError('パーティーHUDの指定が不正です')
    sound_path=d.get('sound_path',self.overlay_cfg.get('sound_path',''))
    if not isinstance(sound_path,str) or len(sound_path)>4096 or '\0' in sound_path:raise ValueError('通知音ファイルの指定が不正です')
    sound_path=sound_path.strip()
    if sound_path and Path(sound_path).suffix.lower() not in ('.wav','.mp3'):raise ValueError('通知音はWAVまたはMP3を選択してください')
    self.overlay_cfg.update(show=d['show'],alert=d['alert'],other_alerts=d['other_alerts'],name=own,auto_name=auto_name,seconds=seconds,volume=volume,opacity=opacity)
-   self.overlay_cfg['show_weakness']=show_weakness;self.overlay_cfg['sound_path']=sound_path
+   self.overlay_cfg['show_weakness']=show_weakness;self.overlay_cfg['show_party']=show_party;self.overlay_cfg['sound_path']=sound_path
    if auto_name:self.refresh_identity(force=True)
    else:self.identity_status='手入力モード'
    self.meter.configure(self.overlay_cfg['name'],seconds)
@@ -941,6 +988,7 @@ class App:
   if self.root.winfo_exists():self.root.after(1800,self.check_ui_closed)
  def close(self):
   self.stop.set();self.save(quiet=True);self.stop_music()
+  if self.party_hud is not None and self.party_hud.winfo_exists():self.party_hud.destroy()
   if self.hud is not None and self.hud.winfo_exists():self.hud.destroy()
   if self.player_process is not None and self.player_process.poll() is None:
    try:

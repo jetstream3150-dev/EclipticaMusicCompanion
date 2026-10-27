@@ -11,6 +11,7 @@ import time
 
 BOSS_RX = re.compile(r'ECLIPTICA\s*-\s*now fighting boss:\s*(.+?)\s+on phase:\s*([^\s\],;)]+)', re.I)
 STAGE_RX = re.compile(r'ECLIPTICA\s*-\s*now in stage:\s*(.+?)\s+on phase:', re.I)
+JOB_RX = re.compile(r'\bas class:\s*([^\s,|\]]+)', re.I)
 ROOM_RX = re.compile(r'\[Behaviour\]\s*Entering Room:\s*(.*)$', re.I)
 LEFT_ROOM_RX = re.compile(r'\[Behaviour\]\s*OnLeftRoom\b', re.I)
 LOG_PREFIX_RX = re.compile(r'\bDebug\s+-\s+', re.I)
@@ -50,6 +51,7 @@ class CombatMeter:
             self.boss=''
             self.phase=''
             self.stage=''
+            self.job=''
             self.target=''
             self.total=0.0
             self.boss_total=0.0
@@ -123,6 +125,8 @@ class CombatMeter:
             stage=STAGE_RX.search(line)
             if stage:
                 name=_clean_name(stage.group(1))
+                job=JOB_RX.search(line)
+                if job:self.job=_clean_name(job.group(1))[:40]
                 if name.casefold()!=self.stage.casefold() or self.mode in ('unknown','break','lobby','boss'):
                     self.tokens_spawned=self.tokens_pending;self.tokens_pending=0;self.tokens_collected=0
                     self.boss='';self.boss_total=0;self.phase_total=0;self.phase=''
@@ -210,7 +214,7 @@ class CombatMeter:
         with self.lock:
             self._trim(t)
             duration=max(1.0,(self.dummy_ended if self.dummy_ended is not None else t)-self.dummy_started) if self.dummy_started is not None else 0.0
-            return {'boss':self.boss or '待機中','stage':self.stage or '—',
+            return {'boss':self.boss or '待機中','stage':self.stage or '—','job':self.job,
                 'phase':self.phase or '—','target':self.target or '未検出',
                 'is_targeted':bool(self.own_name and self.target and self.own_name.casefold()==self.target.casefold()),
                 'own_name':self.own_name,'dps':round(sum(a for _,a in self.damage_events)/self.seconds,1),
