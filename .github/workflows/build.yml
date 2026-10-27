@@ -45,33 +45,40 @@ jobs:
           pe = struct.unpack_from('<I', boot, 0x3c)[0]
           if boot[pe:pe+4] != b'PE\x00\x00':
               raise RuntimeError('Invalid Windows executable header')
-          machine, count, _, _, _, optional_size, _ = struct.unpack_from('<HHIIIHH', boot, pe+4)
-          if machine != 0x8664:
-              raise RuntimeError('Expected Windows x64 executable')
+          machine, count, timestamp, _, _, optional_size, _ = struct.unpack_from('<HHIIIHH', boot, pe+4)
+          if machine != 0x8664 or struct.unpack_from('<H', boot, pe+24)[0] != 0x20b:
+              raise RuntimeError('Expected Windows x64 PE32+ executable')
           base = pe + 24 + optional_size
           sections = {}
           section_data = {}
+          section_locations = {}
           for i in range(count):
               offset = base + i * 40
               name = boot[offset:offset+8].split(b'\0', 1)[0].decode('ascii', 'strict')
-              _, _, size, start = struct.unpack_from('<IIII', boot, offset+8)
+              vsize, rva, size, start = struct.unpack_from('<IIII', boot, offset+8)
               section_data[name] = boot[start:start+size]
+              section_locations[name] = (vsize, rva, size, start)
               sections[name] = hashlib.sha256(section_data[name]).hexdigest()
+          debug_rva, debug_size = struct.unpack_from('<II', boot, pe+24+112+6*8)
+          _, rva, size, start = section_locations['.rdata']
+          if debug_size != 28 or not (rva <= debug_rva and debug_rva + debug_size <= rva + size):
+              raise RuntimeError('Unexpected debug directory location or size')
+          debug_timestamp = struct.unpack_from('<I', boot, start+debug_rva-rva+4)[0]
+          if debug_timestamp != 0x6aa5c4d8:
+              raise RuntimeError('Unexpected official bootloader debug timestamp')
+          print('Official PE timestamp:', hex(timestamp))
+          print('Official debug timestamp:', hex(debug_timestamp))
+          print('Build 34 PE and debug timestamp: 0x6ae0c699')
+          print('Only the build 34 debug timestamp was normalized to the official timestamp before hashing.')
+          print('The hashes below were independently calculated from the saved build 34 EXE.')
           expected = {
               '.text': '67bdc7f5eeccf01180cd5b3621be7d0265efa6a44742496a7a6c6f9076ef4b1f',
-              '.rdata': '62f52c84f30e63a93cc3624bd5ed51324ca86a3291611734d79e74aff0b2f1b4',
+              '.rdata': '93dcce008db472c9c8cd4bf8a465c560d76bd0216e7fb5874a1866ae808a35ab',
           }
           for name, digest in expected.items():
-              print(name, 'official:', sections.get(name, 'missing'), 'build 34:', digest)
-          # Publish only hashes of the official bootloader's small blocks, so
-          # the different region can be found without uploading the test ZIP.
-          data = section_data.get('.rdata', b'')
-          print('OFFICIAL_RDATA_SIZE', len(data))
-          print('OFFICIAL_RDATA_BLOCK_66560_HEX', data[66560:67584].hex())
-          for offset in range(0, len(data), 1024):
-              print('OFFICIAL_RDATA_BLOCK', offset, hashlib.sha256(data[offset:offset+1024]).hexdigest())
+              print(name, 'official:', sections.get(name, 'missing'), 'build 34 (normalized):', digest)
           if any(sections.get(name) != digest for name, digest in expected.items()):
               raise RuntimeError('Bootloader section differs from build 34; investigate before drawing conclusions')
-          print('PASS: build 34 executable code and read-only data match the pinned PyInstaller bootloader.')
-          print('LIMITATION: matching bootloader sections do not independently validate embedded application code or prove safety.')
+          print('PASS: build 34 .text and timestamp-normalized .rdata match the pinned PyInstaller bootloader.')
+          print('LIMITATION: this does not independently validate embedded application code or prove safety.')
           PY
