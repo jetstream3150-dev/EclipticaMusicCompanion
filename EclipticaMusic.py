@@ -144,7 +144,7 @@ class BattleHUD(tk.Toplevel):
  def __init__(self,app):
   super().__init__(app.root)
   self.app=app;self.overrideredirect(True);self.attributes('-topmost',True)
-  self.geometry('362x405+48+75');self.configure(bg='#060d16')
+  self.geometry('362x460+48+75');self.configure(bg='#060d16')
   self.start_drag=None
   self.border=tk.Frame(self,bg='#164e55',padx=1,pady=1);self.border.pack(fill='both',expand=True)
   content=tk.Frame(self.border,bg='#0d1721',padx=15,pady=12);content.pack(fill='both',expand=True)
@@ -164,6 +164,7 @@ class BattleHUD(tk.Toplevel):
    tk.Label(cell,text=label,font=('Segoe UI',9),bg='#152734',fg='#80a6b4',anchor='w').pack(fill='x')
    val=tk.Label(cell,text='0',font=('Segoe UI',18,'bold'),bg='#152734',fg='#f5ffff',anchor='w');val.pack(fill='x');self.metrics[key]=val
   self.weak_lbl=tk.Label(content,text='',font=('Segoe UI',9),bg='#0d1721',fg='#c3e3e4',anchor='w',justify='left',wraplength=320);self.weak_lbl.pack(fill='x',pady=(8,0))
+  self.tracker_lbl=tk.Label(content,text='',font=('Segoe UI',9),bg='#0d1721',fg='#c3e3e4',anchor='w',justify='left',wraplength=320);self.tracker_lbl.pack(fill='x',pady=(6,0))
   self.note=tk.Label(content,text='ログから推定 / 画面上をドラッグして移動',font=('Segoe UI',9),bg='#0d1721',fg='#7896a3');self.note.pack(anchor='w',pady=(6,0))
   self.refresh(app.meter.snapshot(),app.overlay_cfg)
  def drag_start(self,event):self.start_drag=(event.x_root-self.winfo_x(),event.y_root-self.winfo_y())
@@ -182,6 +183,10 @@ class BattleHUD(tk.Toplevel):
    summary='  '.join(changes) if changes else (' / '.join(w['notes'][:2]) if w['notes'] else ('弱点・耐性: すべて等倍' if w['available'] else '弱点・耐性: 未登録'))
    self.weak_lbl.config(text='参考  '+summary)
   else:self.weak_lbl.config(text='')
+  if v.get('mode')=='stage':tracker='トークン（推定） %d / %d'%(v.get('tokens_collected',0),v.get('tokens_spawned',0))
+  elif v.get('mode')=='break' and v.get('dummy_hits',0):tracker='練習ダミー（推定） DPS %.1f / 合計 %.0f'%(v.get('dummy_dps',0),v.get('dummy_damage',0))
+  else:tracker=''
+  self.tracker_lbl.config(text=tracker)
   self.border.config(bg='#aa3646' if targeted else '#164e55')
   self.note.config(text='集計イベント %d件  /  %d秒DPS  • ドラッグ移動'%(v['events_found'],v['dps_window']))
 
@@ -629,22 +634,33 @@ class App:
   self.stop.set()
   self._watch_generation+=1
   self.meter.reset();self.meter.configure(self.overlay_cfg['name'],self.overlay_cfg['seconds'])
+  while True:
+   try:self.combat_events.get_nowait()
+   except queue.Empty:break
   self.stop=threading.Event();self.round=0;self.boss='';self.laststage=''
-  self.worker=threading.Thread(target=self.watch,args=(p,self.stop),daemon=True)
-  self.worker.start();self.status.set('監視中: '+p.name)
-  # Recover the latest game state from this session's recent log.
-  generation=self._watch_generation
-  self.root.after(250,lambda path=p,g=generation:self.resume_from_log(path) if g==self._watch_generation and not self.stop.is_set() else None)
   self.event_status.set('検知イベント: 待機中（次のゲームイベントから再生）')
+  # Read a fixed historical snapshot before monitoring subsequent bytes. This
+  # prevents live lines from being replayed twice or overwriting newer state.
+  offset=self.resume_from_log(p)
+  self.worker=threading.Thread(target=self.watch,args=(p,self.stop,offset),daemon=True)
+  self.worker.start();self.status.set('監視中: '+p.name)
  def resume_from_log(self,p):
   # The most recent ECLIPTICA state in this VRChat session is a best-effort hint.
   try:
-   if time.time()-p.stat().st_mtime>7200:return
+   stat=p.stat();end=stat.st_size
+   if time.time()-stat.st_mtime>7200:return end
    with p.open('rb') as f:
-    f.seek(max(0,p.stat().st_size-2_000_000));raw=f.read().decode('utf-8','replace')
+    begin=max(0,end-2_000_000);f.seek(begin);data=f.read(end-begin)
+   last=data.rfind(b'\n')
+   offset=begin+last+1 if last>=0 else begin
+   data=data[:last+1] if last>=0 else b''
+   if begin and data:
+    first=data.find(b'\n');data=data[first+1:] if first>=0 else b''
+   raw=data.decode('utf-8','replace')
    events=[]
    for line in raw.splitlines():
-    for transition in self.meter.ingest(line):self.combat_events.put(transition)
+    self.meter.ingest(line,replay=True)
+    if re.search(r'\[Behaviour\]\s*(?:Entering Room:|OnLeftRoom\b)',line,re.I):events.clear()
     if 'ECLIPTICA - now in intermission' in line:events.append(('休憩',None))
     elif 'ECLIPTICA - now in lobby' in line:events.append(('ロビー',None))
     else:
@@ -660,16 +676,20 @@ class App:
     elif kind=='ロビー':self.handle_event('途中参加・ロビー','ロビー')
     else:self.handle_event('途中参加・推定'+kind,kind)
    else:self.status.set('現在の場面をログから特定できません。手動で曲を選択してください')
-  except (OSError,UnicodeError) as e:self.status.set('途中参加の状態確認に失敗: '+str(e))
+   return offset
+  except (OSError,UnicodeError) as e:
+   self.status.set('途中参加の状態確認に失敗: '+str(e));return None
  def stop_watch(self):
   self._watch_generation+=1
   self.stop.set();self.status.set('■ 自動切り替えを停止しました')
- def watch(self,p,signal):
+ def watch(self,p,signal,offset=None):
   # Start at EOF: old events must not play when the app starts mid-game.
   # Reopen new VRChat logs automatically when VRChat restarts.
   try:
    f=p.open('r',encoding='utf-8',errors='replace')
-   f.seek(0,2)
+   if offset is None:f.seek(0,2)
+   else:f.seek(offset)
+   partial=''
    while not signal.is_set():
     line=f.readline()
     if not line:
@@ -679,13 +699,21 @@ class App:
       if newest and newest!=p and session_sort_key(newest)>session_sort_key(p):
        nf=newest.open('r',encoding='utf-8',errors='replace')
        nf.seek(0,2)
-       f.close();f=nf;p=newest
+       with self.meter.lock:
+        if signal.is_set():nf.close();break
+        self.meter.reset()
+       f.close();f=nf;p=newest;partial=''
        self.root.after(0,lambda path=str(p):self.log.set(path))
        self.root.after(0,lambda name=p.name:self.status.set('新しいログへ自動切替: '+name))
      except OSError:pass
      continue
+    partial+=line
+    if not partial.endswith('\n'):continue
+    line=partial;partial=''
     # Keep the live HUD and target alerts updated as new log lines arrive.
-    for transition in self.meter.ingest(line):self.combat_events.put(transition)
+    with self.meter.lock:
+     if signal.is_set():break
+     for transition in self.meter.ingest(line):self.combat_events.put(transition)
     if 'ECLIPTICA - now in intermission' in line:
      self.root.after(0,lambda:self.handle_event('休憩開始','休憩'))
     elif 'ECLIPTICA - now in lobby' in line:

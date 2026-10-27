@@ -51,6 +51,15 @@ def test_app():
  a.api_action({'action':'overlay_settings','show':True,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'show_weakness':False,'volume':44,'seconds':10,'opacity':90})
  a.update_hud_loop();root.update()
  assert a.hud.weak_lbl.cget('text')==''
+ a.meter.ingest('ECLIPTICA - now in stage: Stage_A on phase: 0.1')
+ a.meter.ingest('2026 Debug - spawn token, True, 55')
+ a.meter.ingest('2026 Debug - ECLIPTICA saving SESSION ID 11508')
+ a.update_hud_loop();root.update()
+ assert '1 / 1' in a.hud.tracker_lbl.cget('text')
+ a.meter.ingest('ECLIPTICA - now in intermission')
+ a.meter.ingest('2026 Debug - Dealing 30 STRIKE damage')
+ a.update_hud_loop();root.update()
+ assert 'ダミー' in a.hud.tracker_lbl.cget('text')
  a.api_action({'action':'overlay_settings','show':False,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
  root.update();assert a.hud.state()=='withdrawn'
  a.close();print('Tk integration checks PASS')

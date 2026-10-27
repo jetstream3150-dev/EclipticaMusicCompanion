@@ -47,6 +47,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_weakness
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_combat_real
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Windows folder with complete Tcl Tk runtime
         shell: pwsh

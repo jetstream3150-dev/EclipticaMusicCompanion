@@ -89,6 +89,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
    <p class="muted" id="hud-observation">ログの解析を待っています。</p>
   </div>
   <div class="card"><div class="cardh">ボスの弱点・耐性 <small>参考情報</small></div><p id="hud-boss-weakness" class="muted">ボスの検出を待っています。</p><p class="muted">データに形態別の記載がない場合は共通情報を表示します。ゲームの更新などにより実際と異なる場合があります。</p></div>
+  <div class="card"><div class="cardh">トークンと練習ダミー <small>ログから推定</small></div><p id="hud-tokens" class="muted">トークン：計測待ち</p><p id="hud-dummy" class="muted">練習ダミー：計測待ち</p><p class="muted">ログから確認できた分だけを集計します。休憩中の攻撃は練習ダミーとして計測し、ボスへのダメージとは分けます。</p></div>
   <div class="card"><div class="cardh">利用前の注意</div><p class="muted">VRChatの設定 → デバッグ → ログ出力を「完全」にしてください。ログの形式はワールド更新によって変わるため、現時点のDPS・ターゲット検知は試験的です。ログに該当イベントが出ていないと0や未検出になります。ターゲットは推定であり、戦闘中の安全を保証しません。</p><p class="muted">このHUDはWindowsのデスクトップ用です。SteamVRのヘッドセット内表示には未対応。フルスクリーン排他モードでは表示されないことがあります。</p></div>
  </section>
  <section class="panel" id="other">
@@ -208,6 +209,8 @@ let previousStatus='';async function poll(){try{
  $('hud-current-boss').textContent=c.boss||'待機中';$('hud-current-target').textContent=c.is_targeted?'⚠ あなたがターゲット（推定）':(c.target||'未検出');
  $('hud-current-dps').textContent=(c.dps??0).toFixed(1);$('hud-current-damage').textContent=(c.boss_damage??0).toLocaleString();
  const w=v.weakness||{};const entries=(w.elements||[]).map(e=>e.name+' '+e.value+(e.kind==='weak'?'（弱点）':e.kind==='resist'?'（耐性）':''));$('hud-boss-weakness').textContent=w.available?[...entries,...(w.notes||[])].join(' / '):'該当ボスの参考データがありません。';
+ $('hud-tokens').textContent=c.mode==='stage'?'トークン（推定）：'+(c.tokens_collected??0)+' / '+(c.tokens_spawned??0):'トークン：ステージ中に表示';
+ $('hud-dummy').textContent=(c.dummy_hits??0)?'練習ダミー（推定）：DPS '+(c.dummy_dps??0).toFixed(1)+' / 合計 '+(c.dummy_damage??0).toLocaleString()+(c.dummy_active?'（計測中）':'（直近の記録）'):'練習ダミー：休憩中の攻撃を待っています。';
  $('hud-observation').textContent='解析したダメージイベント '+(c.events_found??0)+'件 / '+(c.dps_window??10)+'秒DPS。イベントが0件ならログ形式を確認してください。';
  if(!$('hud-show').matches(':focus')&&v.overlay_visible!==$('hud-show').checked){$('hud-show').checked=!!v.overlay_visible;}
  if(v.status!==previousStatus){previousStatus=v.status}
