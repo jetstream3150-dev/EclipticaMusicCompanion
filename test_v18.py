@@ -48,9 +48,10 @@ def test_app():
  a.update_hud_loop();root.update()
  assert a.api_view()['weakness']['name']=='Yuki(P2)'
  assert '弱火' in a.hud.weak_lbl.cget('text')
- a.api_action({'action':'overlay_settings','show':True,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'show_weakness':False,'volume':44,'seconds':10,'opacity':90})
+ a.api_action({'action':'overlay_settings','show':True,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'show_weakness':False,'sound_path':'C:/test/missing.mp3','volume':44,'seconds':10,'opacity':90})
  a.update_hud_loop();root.update()
  assert a.hud.weak_lbl.cget('text')==''
+ assert a.api_config()['overlay']['sound_path']=='C:/test/missing.mp3'
  a.meter.ingest('ECLIPTICA - now in stage: Stage_A on phase: 0.1')
  a.meter.ingest('2026 Debug - spawn token, True, 55')
  a.meter.ingest('2026 Debug - ECLIPTICA saving SESSION ID 11508')
@@ -61,6 +62,7 @@ def test_app():
  a.update_hud_loop();root.update()
  assert 'ダミー' in a.hud.tracker_lbl.cget('text')
  a.api_action({'action':'overlay_settings','show':False,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
+ assert a.api_config()['overlay']['sound_path']=='C:/test/missing.mp3'
  root.update();assert a.hud.state()=='withdrawn'
  a.close();print('Tk integration checks PASS')
 

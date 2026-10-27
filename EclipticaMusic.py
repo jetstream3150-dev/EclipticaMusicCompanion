@@ -7,6 +7,7 @@ from tkinter import ttk,filedialog,messagebox
 from datetime import datetime
 from combat_meter import CombatMeter
 from boss_weakness import lookup as lookup_weakness
+from alert_sound import play_custom_sound
 from vrchat_identity import detect_identity, session_sort_key
 BASE=Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 USER_DIR=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else BASE
@@ -39,7 +40,7 @@ class Handler(BaseHTTPRequestHandler):
     if size<2 or size>20000:raise ValueError('操作データが不正です')
     data=json.loads(self.rfile.read(size).decode('utf-8'))
     if not isinstance(data,dict):raise ValueError('操作データが不正です')
-    value=self._dispatch(lambda:UI_APP.api_action(data),timeout=180 if data.get('action') in ('pick','backup','restore') else 20)
+    value=self._dispatch(lambda:UI_APP.api_action(data),timeout=180 if data.get('action') in ('pick','pick_alert','backup','restore') else 20)
     self._json_response({'ok':True,'result':value});return
    except Exception as exc:
     self._json_response({'ok':False,'error':str(exc)[:220]},400);return
@@ -116,10 +117,14 @@ class Handler(BaseHTTPRequestHandler):
   if u.path=='/':
    b=(BASE/'player.html').read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.end_headers();self.wfile.write(b);return
   self.send_error(404)
-def play_target_tone(kind,volume=65):
+def play_target_tone(kind,volume=65,filename=''):
  """Windows-only, standalone PCM chime. Never blocks the GUI thread."""
  if sys.platform!='win32' or volume<=0:return
  def worker():
+  if filename:
+   try:
+    if play_custom_sound(filename,volume):return
+   except Exception:pass  # Continue with the built-in alert on playback failure.
   try:
    import winsound,math,struct,wave,io
    tones={'target_on':[(850,.105),(940,.105),(1030,.105),(1180,.23)],
@@ -194,7 +199,7 @@ class App:
  def __init__(self,root,port):
   self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.identity_status='自動取得の確認待ち';self.identity_log='';self.build();self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
  def _overlay_options(self):
-  defaults={'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'volume':65,'seconds':10,'opacity':92}
+  defaults={'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'sound_path':'','volume':65,'seconds':10,'opacity':92}
   saved=self.cfg.get('overlay',{})
   if isinstance(saved,dict):
    defaults.update({k:v for k,v in saved.items() if k in defaults})
@@ -209,6 +214,7 @@ class App:
   try:defaults['opacity']=max(30,min(100,int(defaults['opacity'])))
   except (ValueError,TypeError):defaults['opacity']=92
   defaults['name']=str(defaults['name'])[:90]
+  if not isinstance(defaults['sound_path'],str) or len(defaults['sound_path'])>4096:defaults['sound_path']=''
   return defaults
  def refresh_identity(self,force=False):
   """Check a local VRChat login event; never assume someone else's joined name."""
@@ -247,7 +253,7 @@ class App:
      self.discovered_bosses.add(value);self.cfg['discovered_bosses']=sorted(self.discovered_bosses);self.revision+=1
    elif kind in ('target_on','target_off','target_switch'):
     if self.overlay_cfg.get('alert',True) and (kind!='target_switch' or self.overlay_cfg.get('other_alerts',False)):
-     play_target_tone(kind,int(self.overlay_cfg.get('volume',65)))
+     play_target_tone(kind,int(self.overlay_cfg.get('volume',65)),self.overlay_cfg.get('sound_path',''))
   if self.hud is not None and self.hud.winfo_exists():
    self.hud.refresh(self.meter.snapshot(), self.overlay_cfg)
   if self.root.winfo_exists():self.root.after(350,self.update_hud_loop)
@@ -817,8 +823,12 @@ class App:
     if not isinstance(d.get(key),bool):raise ValueError('HUDのチェック項目が不正です')
    show_weakness=d.get('show_weakness',True)
    if not isinstance(show_weakness,bool):raise ValueError('弱点表示の指定が不正です')
+   sound_path=d.get('sound_path',self.overlay_cfg.get('sound_path',''))
+   if not isinstance(sound_path,str) or len(sound_path)>4096 or '\0' in sound_path:raise ValueError('通知音ファイルの指定が不正です')
+   sound_path=sound_path.strip()
+   if sound_path and Path(sound_path).suffix.lower() not in ('.wav','.mp3'):raise ValueError('通知音はWAVまたはMP3を選択してください')
    self.overlay_cfg.update(show=d['show'],alert=d['alert'],other_alerts=d['other_alerts'],name=own,auto_name=auto_name,seconds=seconds,volume=volume,opacity=opacity)
-   self.overlay_cfg['show_weakness']=show_weakness
+   self.overlay_cfg['show_weakness']=show_weakness;self.overlay_cfg['sound_path']=sound_path
    if auto_name:self.refresh_identity(force=True)
    else:self.identity_status='手入力モード'
    self.meter.configure(self.overlay_cfg['name'],seconds)
@@ -827,8 +837,12 @@ class App:
    self.status.set('バトルHUDの設定を保存しました')
    return self.status.get()
   if action=='overlay_test':
-   play_target_tone('target_on',int(self.overlay_cfg['volume']))
-   return 'ターゲット警告音をテストしました'
+   sound_path=val('sound_path') if 'sound_path' in d else self.overlay_cfg.get('sound_path','')
+   try:volume=int(d.get('volume',self.overlay_cfg['volume']))
+   except (TypeError,ValueError):raise ValueError('警告音量が不正です')
+   if not 0<=volume<=100:raise ValueError('警告音量が範囲外です')
+   play_target_tone('target_on',volume,sound_path)
+   return '警告音の再生を指示しました'
   if action=='start':
    self.start();return self.status.get()
   if action=='stop':self.stop_music();return self.status.get()
@@ -889,6 +903,8 @@ class App:
    path=filedialog.askopenfilename(parent=self.root,title='音楽ファイルを選択',filetypes=[('音楽ファイル','*.mp3 *.wav *.ogg *.m4a')])
    if path:self.status.set('音楽ファイルを選択しました');return path
    return ''
+  if action=='pick_alert':
+   return filedialog.askopenfilename(parent=self.root,title='警告音ファイルを選択',filetypes=[('WAV / MP3','*.wav *.mp3')]) or ''
   if action=='backup':self.export_config();return self.status.get()
   if action=='restore':self.import_config();return self.status.get()
   if action=='open_folder':self.open_config_dir();return self.status.get()
