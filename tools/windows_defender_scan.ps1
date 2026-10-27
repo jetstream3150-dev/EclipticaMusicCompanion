@@ -16,8 +16,42 @@ try {
     'NOT VERIFIED: Microsoft Defender antivirus is disabled on this runner.' | Add-Content $report
     throw 'Defender is disabled; artifact must not be uploaded.'
   }
-  try { Update-MpSignature -ErrorAction Stop | Out-Null }
-  catch { "SIGNATURE UPDATE WARNING: $($_.Exception.Message)" | Add-Content $report }
+  $updated = $false
+  try {
+    Update-MpSignature -ErrorAction Stop | Out-Null
+    $updated = $true
+  } catch {
+    "Default signature update failed: $($_.Exception.Message)" | Add-Content $report
+    try {
+      Update-MpSignature -UpdateSource MMPC -ErrorAction Stop | Out-Null
+      $updated = $true
+      'Signature update succeeded using MMPC.' | Add-Content $report
+    } catch {
+      "MMPC signature update failed: $($_.Exception.Message)" | Add-Content $report
+    }
+  }
+  if (-not $updated) {
+    # Microsoft documents MpCmdRun -SignatureUpdate -MMPC as a fallback.
+    $mpcmd = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
+    if (Test-Path $mpcmd) {
+      try {
+        & $mpcmd -SignatureUpdate -MMPC 2>&1 | Out-File -FilePath $report -Append -Encoding utf8
+        if ($LASTEXITCODE -eq 0) { $updated = $true }
+      } catch {
+        "MpCmdRun signature update failed: $($_.Exception.Message)" | Add-Content $report
+      }
+    }
+  }
+  if (-not $updated) {
+    Get-Content $report | Write-Host
+    throw 'Defender signature update failed; artifact must not be uploaded.'
+  }
+  $s = Get-MpComputerStatus -ErrorAction Stop
+  if (-not $s.AntivirusSignatureLastUpdated -or
+      $s.AntivirusSignatureLastUpdated -lt (Get-Date).AddDays(-2)) {
+    throw 'Defender signature age could not be verified or is over two days old.'
+  }
+  "Signatures after update: $($s.AntivirusSignatureVersion); last updated: $($s.AntivirusSignatureLastUpdated.ToString('o'))" | Add-Content $report
   $scanStarted = Get-Date
   Start-MpScan -ScanType CustomScan -ScanPath $folder -ErrorAction Stop
   if (-not (Test-Path (Join-Path $folder 'EclipticaMusicCompanion.exe'))) {
