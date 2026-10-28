@@ -144,7 +144,8 @@ function unlock() {
   if (pending) runPending();
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && currentTask && !pending) {
+  // Do not interrupt a new local track while its play() promise is pending.
+  if (document.hidden && currentTask && currentTask.slot === active && !pending) {
     cancelAnimationFrame(fadeFrame); setGain(active, 1); stop(1 - active);
   }
 });
