@@ -26,7 +26,7 @@ STATE = {'seq': 0, 'track': '', 'fade': 0, 'volume': .8,
 MESSAGES = []
 ENGINE = Path('engine.js').read_bytes()
 HTML = b'''<!doctype html><html><head><meta charset="utf-8"><style>
-#players{position:absolute;left:-10000px;top:-10000px;width:320px;height:200px;pointer-events:none}
+#players{display:flex;gap:8px;width:100%;min-height:200px}
 </style></head><body><button id="unlock" onclick="unlock()">Unlock</button>
 <p id="status"></p><div id="players"><div id="yt0"></div><div id="yt1"></div></div>
 <script src="/engine.js"></script><script src="https://www.youtube.com/iframe_api"></script>
@@ -104,7 +104,7 @@ def main():
                 frame = call('POST', '/session/' + session + '/element',
                              {'using': 'css selector', 'value': '#yt' + str(active)})
                 call('POST', '/session/' + session + '/frame', {'id': frame})
-                detail = js('return JSON.stringify({url:location.href,referrer:document.referrer,title:document.title,body:document.body ? document.body.innerText.slice(0,500) : ""});')
+                detail = js('return JSON.stringify({url:location.href,referrer:document.referrer,title:document.title,body:document.body ? document.body.innerText.slice(0,500) : "",error:document.querySelector(".ytp-error-content")?.textContent?.slice(0,500)||""});')
                 call('POST', '/session/' + session + '/frame', {'id': None})
                 return detail or ''
             except (OSError, URLError, KeyError, TypeError) as exc:
