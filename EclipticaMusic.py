@@ -24,6 +24,34 @@ SAMPLE_PHASE_TRACKS={
  '終了':'https://www.youtube.com/watch?v=3nQNiWdeH2Q',
  '休憩':'https://www.youtube.com/watch?v=TW9d8vYrVFQ',
 }
+# These are original, bundled demo loops, not downloads of YouTube videos.
+SAMPLE_FALLBACK_FILES={
+ SAMPLE_PHASE_TRACKS['戦闘']:'battle.wav',
+ SAMPLE_PHASE_TRACKS['ボス']:'boss.wav',
+ SAMPLE_PHASE_TRACKS['準備']:'calm.wav',
+ SAMPLE_PHASE_TRACKS['終了']:'calm.wav',
+}
+def sample_fallback(track):
+ name=SAMPLE_FALLBACK_FILES.get(track)
+ if not name:return ''
+ path=BASE/'demo_audio'/name
+ return str(path) if path.is_file() else ''
+
+def youtube_id(track):
+ """Accept supported YouTube video URLs only; do not accept malformed IDs."""
+ try:
+  u=urlparse(track)
+  if u.scheme.lower()!='https' or u.username or u.password:return ''
+  host=(u.hostname or '').lower()
+  if host=='youtu.be':video=u.path.strip('/')
+  elif host in ('youtube.com','www.youtube.com','m.youtube.com','music.youtube.com'):
+   if u.path=='/watch':video=parse_qs(u.query).get('v',[''])[0]
+   elif u.path.startswith(('/shorts/','/embed/')):video=u.path.split('/')[2]
+   else:return ''
+  else:return ''
+  return video if re.fullmatch(r'[A-Za-z0-9_-]{11}',video) else ''
+ except (ValueError,IndexError):return ''
+
 def add_sample_music_once(cfg,difficulties):
  # Fill missing slots on first upgrade without changing any existing selection.
  # The marker lets a user clear a sample permanently after it has been added.
@@ -731,8 +759,12 @@ class App:
  def play(self,track,fallback=''):
   track=track.strip()
   if not track:return
-  is_youtube=bool(re.match(r'^https://(www\.|m\.|music\.)?youtube\.com/(watch\?|shorts/|embed/)|^https://youtu\.be/',track,re.I))
-  if not is_youtube and not Path(track).is_file():self.status.set('YouTubeのURLか存在する音楽ファイルを設定してください');return
+  is_youtube=bool(youtube_id(track))
+  if not is_youtube and not Path(track).is_file():
+   self.stop_music();self.status.set('有効なYouTube動画のURLか存在する音楽ファイルを設定してください');return
+  # Preserve explicit user fallbacks; use a bundled original loop only for the
+  # preset videos if the user hasn't specified one.
+  if is_youtube and not fallback:fallback=sample_fallback(track)
   if Path(track).is_file():
    with lock:allowed_media.add(str(Path(track).resolve()))
   if fallback and Path(fallback).is_file() and Path(fallback).suffix.lower() in ('.mp3','.wav','.ogg','.m4a'):
@@ -1150,6 +1182,8 @@ if __name__=='__main__':
   try:
    root=tk.Tk();root.withdraw()
    app=App(root,0)
+   for track in SAMPLE_FALLBACK_FILES:
+    if not sample_fallback(track):raise FileNotFoundError('Bundled demo audio is missing')
    app.meter.ingest('ECLIPTICA - now fighting boss: YukiPhase2(Clone) on phase: 0')
    app.toggle_hud(True);app.update_hud_loop();root.update()
    if app.api_view()['weakness']['name']!='Yuki(P2)' or '弱火' not in app.hud.weak_lbl.cget('text'):
