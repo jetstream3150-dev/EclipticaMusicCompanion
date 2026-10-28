@@ -263,6 +263,18 @@ jobs:
           }
           Write-Host "PASS: command-line archive scan of the exact ZIP, SHA-256 $before"
 
+      - name: Encrypt the scanned ZIP for a private one-time review
+        shell: pwsh
+        run: |
+          ./tools/private_review_encrypt.ps1 -ZipFile (Join-Path $env:ECLIPTICA_SCAN_ROOT 'EclipticaMusicCompanion-Windows.zip') -PublicKeyFile tools/private_review_public.pem -OutputFile (Join-Path $env:RUNNER_TEMP 'private-preview-encrypted/payload.enc')
+
+      - name: Transfer encrypted review file
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: encrypted-private-preview-kdwjjay1
+          path: ${{ runner.temp }}/private-preview-encrypted/payload.enc
+          if-no-files-found: error
+          retention-days: 1
       - name: Remove temporary scan files
         if: always()
         shell: pwsh
