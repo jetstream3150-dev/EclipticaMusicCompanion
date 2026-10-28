@@ -25,7 +25,7 @@ input[type=range]{accent-color:var(--a);width:100%;cursor:pointer}input[type=che
 aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;background:#0c141b}.side-head{font-size:12px;letter-spacing:.20em;color:#9bbcc4;margin-bottom:18px}.side-card{background:#13212a;border:1px solid #2a424b;padding:18px;border-radius:13px;margin-bottom:15px}.indicator{display:flex;align-items:center;gap:9px;font-size:12px;color:#b8cdd6}.dot{width:8px;height:8px;border-radius:100%;background:#efad60;box-shadow:0 0 9px #e6af5588}.dot.ok{background:var(--a);box-shadow:0 0 9px #55e0ce88}.bigstatus{font-size:13px;font-weight:650;line-height:1.7;margin:15px 0;overflow-wrap:anywhere}.smallcap{color:#7da4b2;font-size:10px;letter-spacing:.15em;margin:18px 0 7px}.tiny{color:#b2c9ce;font-size:12px;overflow-wrap:anywhere;line-height:1.5;max-height:100px;overflow:auto}.sidebuttons{display:grid;gap:8px}.sidebuttons .btn{width:100%}.meter{display:flex;justify-content:space-between;color:var(--muted);font-size:12px}
 .download{margin-top:20px;border-top:1px solid var(--line);padding-top:8px}.check{font-size:12px;font-weight:400;color:#c1d2da;line-height:1.7;display:flex;gap:8px;align-items:flex-start}.check input{margin-top:3px}
 .toast{position:fixed;z-index:8;bottom:25px;left:50%;transform:translateX(-50%);padding:13px 20px;max-width:calc(100vw - 32px);min-width:240px;text-align:center;pointer-events:none;border:1px solid #396c70;background:#14292e;color:#cbfff4;box-shadow:0 15px 44px #0009;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s}.toast.show{opacity:1}.toast.error{border-color:#a96773;background:#302027;color:#ffe2e6}
-#players{position:absolute;left:-10000px;top:-10000px;width:320px;height:200px;pointer-events:none}#status{display:none}
+#players{display:grid;gap:8px}#players iframe{display:block;width:100%;min-width:200px;height:200px}#status{display:none}.bigstatus{white-space:pre-line}
 @media(max-width:1090px){.app{grid-template-columns:188px minmax(390px,1fr)}nav{padding:24px 10px}aside{min-height:unset;grid-column:2;border-top:1px solid var(--line);border-left:0;display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:18px 28px}aside .side-head{grid-column:1/-1;margin:0}aside .side-card{margin:0}}
 @media(max-width:690px){.app{grid-template-columns:1fr}nav{position:sticky;top:0;z-index:4;min-height:unset;display:flex;flex-direction:row;overflow:auto;padding:10px;background:#0b141cf2;gap:4px}.brand,.bottom-nav{display:none}.navitem{white-space:nowrap;padding:12px 14px;width:auto}.navitem .num{display:none}main{padding:25px 16px 35px}.twocol{grid-template-columns:1fr}aside{grid-column:1;grid-template-columns:1fr;padding:16px}.btns>*{min-width:140px}}
 </style>
@@ -49,7 +49,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
   <div class="card"><div class="cardh">検知したイベント</div><div class="muted" id="event-info">検知イベント: なし</div><div class="status" id="app-status">準備中…</div></div>
  </section>
  <section class="panel" id="music">
-  <header><div class="eyebrow">02 / CUSTOMIZE</div><h1 class="heading">曲を設定する。</h1><div class="lead">難易度・場面ごとに、YouTubeのURLかローカルの音声ファイルを指定。<br>最初はNCSのサンプル曲が入っています。好きな曲に変更できます。</div></header>
+  <header><div class="eyebrow">02 / CUSTOMIZE</div><h1 class="heading">曲を設定する。</h1><div class="lead">難易度・場面ごとに、YouTubeのURLかローカルの音声ファイルを指定。<br>最初はNCSのサンプル曲が入っています。再生できない場合は内蔵の試用BGMに切り替わります。</div></header>
   <div class="card"><div class="cardh">01　難易度と場面</div><div class="twocol"><div><label for="music-diff">難易度</label><select id="music-diff"></select></div><div><label for="music-phase">場面</label><select id="music-phase"></select></div></div><div class="muted" style="margin-top:12px">「戦闘」は道中の音楽です。</div></div>
   <div class="card"><div class="cardh">02　音源を指定</div><label for="music-track">YouTube URL または音楽ファイル</label><div class="row wide"><input id="music-track" type="text" placeholder="https://www.youtube.com/watch?v=..." spellcheck="false"><button class="btn small" data-pick="music-track">ファイル</button></div><label for="music-fallback">予備MP3（YouTubeが再生できないとき）</label><div class="row wide"><input id="music-fallback" type="text" placeholder="必要な場合のみ" spellcheck="false"><button class="btn small" data-pick="music-fallback">ファイル</button></div><div class="btns" style="margin-top:21px"><button class="btn primary" id="music-save">✓ 設定を保存</button><button class="btn" id="music-preview">▶ この曲を試す</button><button class="btn danger" data-action="stop">■ 停止</button></div><p class="muted">入力後は自動保存されます。</p></div>
   <div class="card download"><div class="cardh">音源を登録する（Lite版）</div><p class="muted">この版ではMP3へのダウンロード・変換を停止しています。上の「ファイル」ボタンで手持ちの音源を登録できます。YouTube URLの再生は引き続き使えます。</p></div>
@@ -119,14 +119,15 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
 </main>
 <aside>
  <div class="side-head">AUDIO ENGINE / INTEGRATED</div>
+ <div class="side-card"><div class="smallcap" style="margin-top:0">YouTube プレーヤー</div><div id="players"><div id="yt0"></div><div id="yt1"></div></div></div>
  <div class="side-card"><div class="indicator"><span class="dot" id="engine-dot"></span><span id="engine-label">プレイヤーの初期化中</span></div><div class="bigstatus" id="playback-info">待機中</div><div class="sidebuttons"><button class="btn primary" id="unlock">▶ 再生を有効化</button><button class="btn danger" data-action="stop">■ 再生を停止</button></div><div class="smallcap">NOW PLAYING</div><div class="tiny" id="now-playing">再生待ち</div></div>
  <div class="side-card"><div class="meter"><span>MASTER VOLUME</span><b id="volume-label">80</b></div><input id="master-volume" type="range" min="0" max="100" step="1" value="80"><div class="smallcap">AUTO SWITCH</div><div class="indicator"><span class="dot" id="monitor-dot"></span><span id="monitor-label">停止中</span></div></div>
  <div class="side-card"><div class="smallcap" style="margin-top:0">IMPORTANT</div><p class="muted">初回は「再生を有効化」を押してください。ブラウザの仕様で必要な操作です。</p><p class="muted">再生中はこのウィンドウを開いておいてください。</p><button class="btn small" id="quit" style="width:100%">アプリを終了する</button></div>
 </aside>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<!-- Hidden YouTube/Audio engine is in the SAME web window; no second Edge window. -->
-<p id="status">待機中</p><div id="players"><div id="yt0"></div><div id="yt1"></div></div>
+<!-- The YouTube and audio engine shares this window with the controls. -->
+<p id="status">待機中</p>
 <script src="/engine.js"></script>
 <script src="/party.js"></script>
 <script src="https://www.youtube.com/iframe_api"></script>
@@ -214,12 +215,12 @@ for(const nav of document.querySelectorAll('.navitem'))nav.addEventListener('cli
 for(const id of ['music-diff','music-phase'])$(id).addEventListener('change',()=>{clearTimeout(autoSaveTimer);saveMusic(true);fillMusic()});
 for(const id of ['music-track','music-fallback'])$(id).addEventListener('input',()=>queueAutosave(()=>saveMusic(true)));
 $('music-save').addEventListener('click',()=>saveMusic());
-$('music-preview').addEventListener('click',()=>safe('play',{track:$('music-track').value,fallback:$('music-fallback').value}));
+$('music-preview').addEventListener('click',()=>{unlock();safe('play',{track:$('music-track').value,fallback:$('music-fallback').value})});
 $('boss-add').addEventListener('click',()=>{const name=$('boss-custom').value.trim();if(!name)return toast('追加するボス名を入力してください',true);if(name.length>120)return toast('ボス名が長すぎます',true);const select=$('boss-name');if(!Array.from(select.options).some(x=>x.value===name))select.add(new Option(name,name));select.value=name;select.dispatchEvent(new Event('change'));$('boss-custom').value='';safe('add_boss',{boss:name},true);$('boss-count').textContent=select.options.length+' 種類（手動追加を含む）';toast('ボスを選択しました。曲を登録して保存してください。')});
 $('boss-name').addEventListener('change',()=>{clearTimeout(autoSaveTimer);saveBoss(true);fillBoss()});
 for(const id of ['boss-track','boss-fallback'])$(id).addEventListener('input',()=>queueAutosave(()=>saveBoss(true)));
 $('boss-save').addEventListener('click',()=>saveBoss());
-$('boss-preview').addEventListener('click',()=>safe('play',{track:$('boss-track').value,fallback:$('boss-fallback').value}));
+$('boss-preview').addEventListener('click',()=>{unlock();safe('play',{track:$('boss-track').value,fallback:$('boss-fallback').value})});
 $('hud-save').addEventListener('click',async()=>{await safe('overlay_settings',hudPayload());await loadConfig(false)});
 $('hud-auto-name').addEventListener('change',async()=>{
   $('hud-name').readOnly=$('hud-auto-name').checked;
@@ -238,18 +239,18 @@ $('hud-show').addEventListener('change',()=>safe('overlay_settings',hudPayload()
 $('hud-volume').addEventListener('input',e=>$('hud-volume-label').textContent=e.target.value);
 $('lobby-track').addEventListener('input',()=>queueAutosave(()=>safe('set_lobby',{track:$('lobby-track').value},true)));
 $('lobby-save').addEventListener('click',()=>safe('set_lobby',{track:$('lobby-track').value}));
-$('lobby-preview').addEventListener('click',()=>safe('play',{track:$('lobby-track').value}));
+$('lobby-preview').addEventListener('click',()=>{unlock();safe('play',{track:$('lobby-track').value})});
 $('other-save').addEventListener('click',()=>safe('settings',{log:$('log-path').value,fade:parseFloat($('fade-secs').value),volume:parseInt($('master-volume').value)}));
 $('detect-log').addEventListener('click',async()=>{const log=await safe('detect');if(log)$('log-path').value=log});
 for(const el of document.querySelectorAll('[data-action]'))el.addEventListener('click',()=>safe(el.dataset.action));
 for(const el of document.querySelectorAll('[data-pick]'))el.addEventListener('click',async()=>{const p=await safe('pick');if(p){$(el.dataset.pick).value=p;$(el.dataset.pick).dispatchEvent(new Event('input',{bubbles:true}))}});
-$('home-preview').addEventListener('click',()=>safe('play_selected',{difficulty:$('home-diff').value,phase:$('home-phase').value}));
+$('home-preview').addEventListener('click',()=>{unlock();safe('play_selected',{difficulty:$('home-diff').value,phase:$('home-phase').value})});
 // Calling unlock synchronously inside the real click event preserves browser user activation.
 $('start').addEventListener('click',()=>{unlock();safe('start')});
 $('unlock').addEventListener('click',()=>{unlock();toast('再生を有効化しました')});
 $('master-volume').addEventListener('input',e=>{$('volume-label').textContent=e.target.value;safe('volume',{volume:parseInt(e.target.value)},true)});
 $('quit').addEventListener('click',()=>{if(confirm('Ecliptica Music Companionを終了しますか？'))safe('quit')});
-let previousStatus='';async function poll(){try{
+let previousStatus='';async function pollView(){try{
  const v=await request('/api/view');$('app-status').textContent=v.status;$('event-info').textContent=v.event;$('playback-info').textContent=v.player;
  $('engine-label').textContent=v.player.includes('未起動')?'待機中':'プレイヤー接続中';
  $('engine-dot').classList.toggle('ok',v.player.includes('再生中')||v.player.includes('有効化')||v.player.includes('ループ再生'));
@@ -270,8 +271,8 @@ let previousStatus='';async function poll(){try{
  if(v.revision>revision&&document.activeElement.tagName!=='INPUT')await loadConfig(false);
  const s=await fetch('/state',{cache:'no-store'}).then(r=>r.json());$('now-playing').textContent=s.stop?'停止中':s.track||'曲はまだ選ばれていません';
  }catch(e){$('app-status').textContent='アプリとの通信待ち: '+e.message;}
- setTimeout(poll,1350)}
+ setTimeout(pollView,1350)}
 window.addEventListener('pagehide',()=>{party.disconnect();const data=new Blob(['bye'],{type:'text/plain'});navigator.sendBeacon('/api/goodbye',data)});
-loadConfig(true).then(poll).catch(e=>toast('設定の読み込みに失敗しました: '+e.message,true));
+loadConfig(true).then(pollView).catch(e=>toast('設定の読み込みに失敗しました: '+e.message,true));
 </script>
 </body></html>
