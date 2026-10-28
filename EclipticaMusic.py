@@ -66,7 +66,24 @@ state={'seq':0,'track':'','fade':2,'volume':.8,'stop':False,'player_status':'プ
 lock=threading.Lock()
 allowed_media=set()
 UI_APP=None
-API_QUEUE=queue.Queue()
+API_QUEUE=queue.Queue(maxsize=256)
+class UIRequest:
+ """A GUI-thread request that can be cancelled before it starts."""
+ def __init__(self,fun):
+  self.fun=fun;self.done=threading.Event();self.guard=threading.Lock()
+  self.state='queued';self.value=None;self.error=None
+ def cancel_if_queued(self):
+  with self.guard:
+   if self.state!='queued':return False
+   self.state='cancelled';self.done.set();return True
+ def execute(self):
+  with self.guard:
+   if self.state!='queued':return
+   self.state='running'
+  try:self.value=self.fun()
+  except Exception as exc:self.error=exc
+  finally:
+   with self.guard:self.state='done';self.done.set()
 class Handler(BaseHTTPRequestHandler):
  def do_POST(self):
   host=self.headers.get('Host','').split(':')[0]
@@ -109,11 +126,16 @@ class Handler(BaseHTTPRequestHandler):
   self.send_header('Content-Length',str(len(raw)))
   self.end_headers();self.wfile.write(raw)
  def _dispatch(self,fun,timeout=20):
-  evt=threading.Event();result={}
-  API_QUEUE.put((fun,evt,result))
-  if not evt.wait(timeout):raise TimeoutError('操作の応答がありません。アプリ画面を確認してください')
-  if 'error' in result:raise RuntimeError(result['error'])
-  return result.get('value')
+  request=UIRequest(fun)
+  try:API_QUEUE.put_nowait(request)
+  except queue.Full:raise RuntimeError('アプリへの操作が混み合っています。少し待ってから再試行してください')
+  if not request.done.wait(timeout):
+   if request.cancel_if_queued():
+    raise TimeoutError('アプリが応答しません。今回の操作は実行されていません。アプリを終了して起動し直してください')
+   if not request.done.is_set():
+    raise TimeoutError('操作の処理が続いています。完了するまで待ち、設定を確認してください')
+  if request.error:raise RuntimeError(str(request.error))
+  return request.value
  def log_message(self,*args):pass
  def do_GET(self):
   u=urlparse(self.path)
@@ -632,7 +654,7 @@ class App:
    except OSError:pass
    return add_sample_music_once(json.loads(json.dumps(DEFAULT)),self.DIFFICULTIES)
  def export_config(self):
-  self.save()
+  if not self.save():return
   target=filedialog.asksaveasfilename(title='設定をバックアップ',defaultextension='.json',initialfile='EclipticaMusicCompanion_backup.json',filetypes=[('JSON','*.json')])
   if target:
    try:shutil.copy2(CFG,target);self.status.set('バックアップを保存しました');messagebox.showinfo('完了','設定を書き出しました。')
@@ -691,29 +713,40 @@ class App:
    v.set(p)
    self.status.set('音楽ファイルを選びました。自動保存されます')
  def save(self,quiet=False):
-  if self._saving:return
+  if self._saving:return False
   self._saving=True
-  if self._save_after is not None:
-   self.root.after_cancel(self._save_after);self._save_after=None
-  if not self.unified and hasattr(self,'music_editor') and not getattr(self,'_loading_editor',False):self.update_music_editor()
-  if not self.unified and hasattr(self,'boss_track') and not getattr(self,'_loading_editor',False):self.update_boss_editor()
-  music={};boss=dict(self.boss_map);fallback={}
-  for (group,k),v in self.vars.items():
-   if group=='music' and v.get().strip():music[k]=v.get().strip()
-   elif group=='fallback' and v.get().strip():fallback[k]=v.get().strip()
-  fallback.update({'boss|'+name:path for name,path in self.boss_fallback_map.items() if path.strip()})
-  self.cfg['music']=music;self.cfg['boss']=boss;self.cfg['fallback']=fallback;self.cfg['lobby']=self.lobby.get().strip()
-  try:fade=max(0,min(15,float(self.fade.get())))
-  except (ValueError,tk.TclError):fade=2.0
-  self.cfg.update(log=self.log.get(),fade=fade,volume=int(self.volume.get()),overlay=dict(self.overlay_cfg),discovered_bosses=sorted(self.discovered_bosses))
   try:
-   tmp=CFG.with_suffix('.tmp');tmp.write_text(json.dumps(self.cfg,ensure_ascii=False,indent=2),'utf-8');tmp.replace(CFG);self.status.set('設定を保存しました') if not quiet else None
-  except Exception as e:messagebox.showerror('保存失敗',str(e))
+   if self._save_after is not None:
+    self.root.after_cancel(self._save_after);self._save_after=None
+   if not self.unified and hasattr(self,'music_editor') and not getattr(self,'_loading_editor',False):self.update_music_editor()
+   if not self.unified and hasattr(self,'boss_track') and not getattr(self,'_loading_editor',False):self.update_boss_editor()
+   music={};boss=dict(self.boss_map);fallback={}
+   for (group,k),v in self.vars.items():
+    if group=='music' and v.get().strip():music[k]=v.get().strip()
+    elif group=='fallback' and v.get().strip():fallback[k]=v.get().strip()
+   fallback.update({'boss|'+name:path for name,path in self.boss_fallback_map.items() if path.strip()})
+   updated=dict(self.cfg)
+   updated.update(music=music,boss=boss,fallback=fallback,lobby=self.lobby.get().strip())
+   try:fade=max(0,min(15,float(self.fade.get())))
+   except (ValueError,tk.TclError):fade=2.0
+   updated.update(log=self.log.get(),fade=fade,volume=int(self.volume.get()),overlay=dict(self.overlay_cfg),discovered_bosses=sorted(self.discovered_bosses))
+   tmp=CFG.with_suffix('.tmp');tmp.write_text(json.dumps(updated,ensure_ascii=False,indent=2),'utf-8');tmp.replace(CFG);self.cfg=updated
+   self.status.set('設定を保存しました') if not quiet else None
+   return True
+  except Exception as e:
+   message='設定を保存できませんでした: '+str(e)[:180]
+   self.status.set(message)
+   # The Tk window is hidden in unified mode; a modal error there can block
+   # the UI request queue behind the browser until its timeout.
+   if not self.unified:messagebox.showerror('保存失敗',str(e))
+   return False
   finally:self._saving=False
  def detect(self):
   files=sorted(LOG.glob('output_log_*.txt'),key=session_sort_key,reverse=True)
-  if files:self.log.set(str(files[0]));self.status.set('最新ログを選択しました')
-  else:messagebox.showwarning('ログ未検出','VRChatを起動してから再度お試しください。')
+  if files:self.log.set(str(files[0]));self.status.set('最新ログを選択しました');return True
+  self.status.set('VRChatログが見つかりません。VRChatを起動してから再度お試しください')
+  if not self.unified:messagebox.showwarning('ログ未検出','VRChatを起動してから再度お試しください。')
+  return False
  def on_volume_change(self,_=None):
   try:
    with lock:state['volume']=max(0,min(100,int(float(self.volume.get()))))/100;state['volume_seq']+=1
@@ -779,13 +812,13 @@ class App:
  def auto_start(self):
   if self.cfg.get('auto',True):self.start()
  def start(self):
-  self.save()
+  if not self.save():return False
   # Prefer the current VRChat session's newest log over a persisted stale path.
   files=sorted(LOG.glob('output_log_*.txt'),key=session_sort_key,reverse=True)
   configured=Path(self.log.get()) if self.log.get().strip() else None
   p=files[0] if files else configured
   if p is None or not p.is_file():
-   self.status.set('VRChatログが見つかりません。VRChatを起動してください');return
+   self.status.set('VRChatログが見つかりません。VRChatを起動してください');return False
   self.log.set(str(p))
   self.stop.set()
   self._watch_generation+=1
@@ -800,7 +833,7 @@ class App:
   # prevents live lines from being replayed twice or overwriting newer state.
   offset=self.resume_from_log(p)
   self.worker=threading.Thread(target=self.watch,args=(p,self.stop,offset,self._watch_generation),daemon=True)
-  self.worker.start();self.status.set('監視中: '+p.name)
+  self.worker.start();self.status.set('監視中: '+p.name);return True
  def resume_from_log(self,p):
   # The most recent ECLIPTICA state in this VRChat session is a best-effort hint.
   try:
@@ -965,11 +998,9 @@ class App:
   else:self.play_auto('ボス')
  def drain_api(self):
   for _ in range(30):
-   try:fun,evt,result=API_QUEUE.get_nowait()
+   try:request=API_QUEUE.get_nowait()
    except queue.Empty:break
-   try:result['value']=fun()
-   except Exception as exc:result['error']=str(exc)
-   finally:evt.set()
+   request.execute()
   if self.root.winfo_exists():self.root.after(40,self.drain_api)
  def api_config(self):
   music={};fallback={}
@@ -995,6 +1026,8 @@ class App:
    x=d.get(name,'')
    if not isinstance(x,str) or len(x)>limit:raise ValueError(name+'の文字数が不正です')
    return x.strip()
+  def must_save(quiet=True):
+   if not self.save(quiet=quiet):raise RuntimeError(self.status.get() or '設定を保存できませんでした')
   if action=='party_roster':
    rows=d.get('rows')
    if not isinstance(rows,list) or len(rows)>12:raise ValueError('パーティー表示の人数が不正です')
@@ -1041,7 +1074,7 @@ class App:
    else:self.identity_status='手入力モード'
    self.meter.configure(self.overlay_cfg['name'],seconds)
    self.toggle_hud(d['show'])
-   self.save(quiet=True);self.revision+=1
+   must_save();self.revision+=1
    self.status.set('バトルHUDの設定を保存しました')
    return self.status.get()
   if action=='overlay_test':
@@ -1052,10 +1085,11 @@ class App:
    play_target_tone('target_on',volume,sound_path)
    return '警告音の再生を指示しました'
   if action=='start':
-   self.start();return self.status.get()
+   if self.start() is False:raise RuntimeError(self.status.get())
+   return self.status.get()
   if action=='stop':self.stop_music();return self.status.get()
   if action=='stop_watch':self.stop_watch();return self.status.get()
-  if action=='save':self.save();return self.status.get()
+  if action=='save':must_save(quiet=False);return self.status.get()
   if action=='play':
    self.play(val('track'),val('fallback'));return self.status.get()
   if action=='play_selected':
@@ -1069,29 +1103,33 @@ class App:
    key=difficulty+'|'+phase
    self.vars[('music',key)].set(val('track'))
    self.vars[('fallback',key)].set(val('fallback'))
-   self.save(quiet=True);self.revision+=1
+   must_save();self.revision+=1
    self.status.set('曲の設定を保存しました: '+difficulty+' / '+phase)
    return self.status.get()
   if action=='add_boss':
    name=val('boss',120)
    if not name:raise ValueError('ボス名を入力してください')
    if name not in self.discovered_bosses:
-    self.discovered_bosses.add(name);self.save(quiet=True);self.revision+=1
+    self.discovered_bosses.add(name);must_save();self.revision+=1
    self.status.set('ボスを一覧に追加しました: '+name)
    return self.status.get()
   if action=='set_boss':
    name=val('boss',120)
    if not name:raise ValueError('ボス名を入力してください')
    track=val('track');fallback=val('fallback')
+   previous_boss=dict(self.boss_map);previous_fallback=dict(self.boss_fallback_map)
    if track:self.boss_map[name]=track
    else:self.boss_map.pop(name,None)
    if fallback:self.boss_fallback_map[name]=fallback
    else:self.boss_fallback_map.pop(name,None)
-   self.save(quiet=True);self.revision+=1
+   try:must_save()
+   except Exception:
+    self.boss_map=previous_boss;self.boss_fallback_map=previous_fallback;raise
+   self.revision+=1
    self.status.set('ボスの曲を保存しました: '+name)
    return self.status.get()
   if action=='set_lobby':
-   self.lobby.set(val('track'));self.save(quiet=True);self.revision+=1
+   self.lobby.set(val('track'));must_save();self.revision+=1
    self.status.set('ロビーBGMを保存しました');return self.status.get()
   if action=='settings':
    try:fade=float(d.get('fade',2));volume=int(d.get('volume',80))
@@ -1099,14 +1137,16 @@ class App:
    if not 0<=fade<=15 or not 0<=volume<=100:raise ValueError('設定範囲外です')
    self.fade.set(fade);self.volume.set(volume)
    log=val('log');self.log.set(log)
-   self.on_volume_change();self.save(quiet=True);self.revision+=1
+   self.on_volume_change();must_save();self.revision+=1
    self.status.set('その他の設定を保存しました');return self.status.get()
   if action=='volume':
    try:volume=int(d.get('volume',80))
    except (ValueError,TypeError):raise ValueError('音量が不正です')
    self.volume.set(max(0,min(100,volume)));self.on_volume_change();self.schedule_save()
    return '音量 '+str(self.volume.get())
-  if action=='detect':self.detect();self.revision+=1;return self.log.get()
+  if action=='detect':
+   if not self.detect():raise RuntimeError(self.status.get())
+   self.revision+=1;return self.log.get()
   if action=='pick':
    path=filedialog.askopenfilename(parent=self.root,title='音楽ファイルを選択',filetypes=[('音楽ファイル','*.mp3 *.wav *.ogg *.m4a')])
    if path:self.status.set('音楽ファイルを選択しました');return path
