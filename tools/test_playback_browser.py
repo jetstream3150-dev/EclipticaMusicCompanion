@@ -189,6 +189,22 @@ def main():
             autoplay = wait_for(lambda: playing('battle.wav'), 'autoplay-blocked fallback')
             assert '自動再生' in autoplay['status'] and '予備BGM' in autoplay['status'], autoplay
             print('PASS: a simulated browser autoplay block starts the configured fallback', flush=True)
+
+            # Minimize precisely while a new local track's play() is pending.
+            # The visibility handler must not remove that track's source.
+            call('POST', '/session/' + session + '/window/maximize', {})
+            wait_for(lambda: js('return !document.hidden;'), 'restored browser state')
+            js("window.__raceAudio=aud[1-active]; window.__raceOriginal=window.__raceAudio.play.bind(window.__raceAudio); "
+               "window.__raceAudio.play=function(){return new Promise((resolve,reject)=>"
+               "{window.__releaseRace=()=>window.__raceOriginal().then(resolve,reject);});}; return true;")
+            music.UI_APP.player.play(str(ROOT / 'demo_audio' / 'boss.wav'))
+            wait_for(lambda: js('return typeof window.__releaseRace === "function";'), 'pending local play')
+            call('POST', '/session/' + session + '/window/minimize', {})
+            wait_for(lambda: js('return document.hidden;'), 'browser minimized during playback start')
+            assert js('return window.__raceAudio.src.includes("boss.wav");'), 'Pending audio source was cleared on minimize'
+            js('window.__releaseRace(); return true;')
+            wait_for(lambda: playing('boss.wav'), 'pending local playback after minimize')
+            print('PASS: minimizing during a pending local play does not interrupt music', flush=True)
         finally:
             if session:
                 try: call('DELETE', '/session/' + session)
