@@ -48,6 +48,8 @@ jobs:
       - name: Verify Python sources and lite feature gates
         shell: pwsh
         run: |
+          python -m tools.generate_demo_tracks
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m compileall -q EclipticaMusic.py combat_meter.py vrchat_identity.py boss_weakness.py alert_sound.py tools relay
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python test_v18.py --gui
@@ -76,6 +78,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_sample_music
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_playback_browser
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --check engine.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check party.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tools/test_party_client.js
@@ -94,6 +100,7 @@ jobs:
             '--exclude-module', 'yt_dlp', '--exclude-module', 'imageio_ffmpeg',
             '--add-data', 'player.html;.', '--add-data', 'unified.html;.',
             '--add-data', 'engine.js;.',
+            '--add-data', 'demo_audio;demo_audio',
             '--add-data', 'party.js;.',
             '--add-data', 'boss_weakness_data.txt;.',
             '--add-data', 'LICENSE_EclipticaHUD-C.txt;.'
