@@ -14,6 +14,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from EclipticaMusic import SAMPLE_PHASE_TRACKS
@@ -73,6 +74,14 @@ def free_port():
 
 
 def main():
+    for candidate in list(dict.fromkeys(SAMPLE_PHASE_TRACKS.values())) + [TRACKS[0]]:
+        try:
+            api = 'https://www.youtube.com/oembed?' + urlencode({'url': candidate, 'format': 'json'})
+            with urlopen(api, timeout=8) as response:
+                meta = json.load(response)
+            print('OEMBED:', candidate, 'OK', meta.get('title', '')[:100].encode('unicode_escape').decode(), flush=True)
+        except (HTTPError, URLError, OSError, ValueError) as exc:
+            print('OEMBED:', candidate, 'UNVERIFIED', type(exc).__name__, str(exc)[:100], flush=True)
     driver = Path(os.environ.get('EDGEWEBDRIVER', '')) / 'msedgedriver.exe'
     if not driver.is_file():
         print('UNVERIFIED: Edge WebDriver is unavailable on this runner.')
