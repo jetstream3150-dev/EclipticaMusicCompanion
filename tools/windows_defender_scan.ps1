@@ -52,7 +52,7 @@ try {
       $s.AntivirusSignatureLastUpdated -lt (Get-Date).AddDays(-2)) {
     throw 'Defender signature age could not be verified or is over two days old.'
   }
-  Assert-DefenderTargetNotExcluded -Target $folder
+  Enable-DefenderTargetScanOnHostedRunner -Target $folder
   "Signatures after update: $($s.AntivirusSignatureVersion); last updated: $($s.AntivirusSignatureLastUpdated.ToString('o'))" | Add-Content $report
   $scanStarted = Get-Date
   Start-MpScan -ScanType CustomScan -ScanPath $folder -ErrorAction Stop

@@ -167,8 +167,8 @@ jobs:
       - name: Verify release contents and write SHA256 manifest
         run: python tools/verify_release.py dist/EclipticaMusicCompanion
 
-      # The hosted runner's working directory can be excluded from Defender.
-      # Stage a copy on the system drive and verify exclusions before scanning.
+      # The hosted runner can exclude whole drives from Defender. Stage a copy
+      # and remove only matching exclusions on this temporary hosted runner.
       # The manifest created above is checked against every staged file by the
       # ZIP packager, so a changed file cannot be silently shipped.
       - name: Stage files outside the runner workspace for scanning
@@ -212,7 +212,7 @@ jobs:
           }
           Write-Host 'Defender archive scanning is enabled.'
           . ./tools/check_defender_exclusions.ps1
-          Assert-DefenderTargetNotExcluded -Target $zip
+          Enable-DefenderTargetScanOnHostedRunner -Target $zip
           $before = (Get-FileHash -Algorithm SHA256 $zip).Hash
           $started = Get-Date
           Start-MpScan -ScanType CustomScan -ScanPath $zip -ErrorAction Stop

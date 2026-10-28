@@ -9,6 +9,16 @@ function Get-MpPreference {
   param()
   return $script:preferences
 }
+function Remove-MpPreference {
+  [CmdletBinding()]
+  param([string[]] $ExclusionPath, [string[]] $ExclusionExtension)
+  if ($PSBoundParameters.ContainsKey('ExclusionPath')) {
+    $script:preferences.ExclusionPath = @($script:preferences.ExclusionPath | Where-Object { $_ -notin $ExclusionPath })
+  }
+  if ($PSBoundParameters.ContainsKey('ExclusionExtension')) {
+    $script:preferences.ExclusionExtension = @($script:preferences.ExclusionExtension | Where-Object { $_ -notin $ExclusionExtension })
+  }
+}
 function Expect-Excluded([string] $target, [string] $reason) {
   $rejected = $false
   try { Assert-DefenderTargetNotExcluded -Target $target } catch {
@@ -19,6 +29,8 @@ function Expect-Excluded([string] $target, [string] $reason) {
 }
 
 $root = Join-Path $env:RUNNER_TEMP ('ecliptica-exclusion-test-' + [guid]::NewGuid().ToString('N'))
+$originalActions = $env:GITHUB_ACTIONS
+$originalRunner = $env:RUNNER_ENVIRONMENT
 try {
   $folder = Join-Path $root 'app'
   New-Item -ItemType Directory -Path $folder -Force | Out-Null
@@ -37,7 +49,27 @@ try {
   $script:preferences.ExclusionPath = @()
   $script:preferences.ExclusionExtension = @('.EXE')
   Expect-Excluded $folder 'extension is excluded'
-  Write-Host 'PASS: Defender exclusion checks reject excluded paths and extensions'
+
+  $unrelated = Join-Path $root 'unrelated'
+  $script:preferences.ExclusionPath = @($root, $unrelated)
+  $script:preferences.ExclusionExtension = @('.EXE', '.unrelated')
+  $env:GITHUB_ACTIONS = 'true'
+  $env:RUNNER_ENVIRONMENT = 'self-hosted'
+  $rejected = $false
+  try { Enable-DefenderTargetScanOnHostedRunner -Target $folder } catch {
+    if ($_.Exception.Message -notlike '*outside a GitHub-hosted runner*') { throw }
+    $rejected = $true
+  }
+  if (-not $rejected) { throw 'Exclusion removal must reject self-hosted runners.' }
+  $env:RUNNER_ENVIRONMENT = 'github-hosted'
+  Enable-DefenderTargetScanOnHostedRunner -Target $folder
+  if ($root -in $script:preferences.ExclusionPath -or '.EXE' -in $script:preferences.ExclusionExtension -or
+      $unrelated -notin $script:preferences.ExclusionPath -or '.unrelated' -notin $script:preferences.ExclusionExtension) {
+    throw 'Only exclusions matching the scan target should be removed.'
+  }
+  Write-Host 'PASS: Defender exclusion checks and hosted-runner-only removal'
 } finally {
+  $env:GITHUB_ACTIONS = $originalActions
+  $env:RUNNER_ENVIRONMENT = $originalRunner
   if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
 }
