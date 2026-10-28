@@ -16,6 +16,24 @@ CFG=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'EclipticaMusicCompani
 CFG.parent.mkdir(parents=True,exist_ok=True)
 LOG=Path(os.environ.get('USERPROFILE',str(Path.home())))/'AppData/LocalLow/VRChat/VRChat'
 DEFAULT={'round':{},'waiting':{},'phase':{},'boss':{},'music':{},'fade':2.0,'volume':80,'log':'','auto':False,'fallback':{},'lobby':'','overlay':{'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'volume':65,'seconds':10,'opacity':92},'discovered_bosses':[]}
+# NCS official YouTube videos, used only as replaceable starter tracks.
+SAMPLE_PHASE_TRACKS={
+ '戦闘':'https://www.youtube.com/watch?v=yJg-Y5byMMw',
+ '準備':'https://www.youtube.com/watch?v=TW9d8vYrVFQ',
+ 'ボス':'https://www.youtube.com/watch?v=J2X5mJ3HDYE',
+ '終了':'https://www.youtube.com/watch?v=3nQNiWdeH2Q',
+ '休憩':'https://www.youtube.com/watch?v=TW9d8vYrVFQ',
+}
+def add_sample_music_once(cfg,difficulties):
+ # Fill missing slots on first upgrade without changing any existing selection.
+ # The marker lets a user clear a sample permanently after it has been added.
+ if cfg.get('sample_music_initialized') is True:return cfg
+ for difficulty in difficulties:
+  for phase,track in SAMPLE_PHASE_TRACKS.items():
+   cfg['music'].setdefault(difficulty+'|'+phase,track)
+ if not cfg.get('lobby'):cfg['lobby']=SAMPLE_PHASE_TRACKS['休憩']
+ cfg['sample_music_initialized']=True
+ return cfg
 state={'seq':0,'track':'','fade':2,'volume':.8,'stop':False,'player_status':'プレイヤー未接続','player_seen':0,'volume_seq':0,'fallback':''}
 lock=threading.Lock()
 allowed_media=set()
@@ -574,17 +592,17 @@ class App:
  DIFFICULTIES=('Primal','Penumbra','Antumbra','Umbra','Eclipse','Eye of the Eclipse')
  PHASES=('戦闘','準備','ボス','終了','休憩')
  def load_config(self):
-  if not CFG.exists():return json.loads(json.dumps(DEFAULT))
+  if not CFG.exists():return add_sample_music_once(json.loads(json.dumps(DEFAULT)),self.DIFFICULTIES)
   try:
    obj=json.loads(CFG.read_text('utf-8'))
    if not isinstance(obj,dict):raise ValueError('設定の形式が正しくありません')
    cfg=json.loads(json.dumps(DEFAULT));cfg.update(obj)
    if not isinstance(cfg.get('music'),dict) or not isinstance(cfg.get('boss'),dict) or not isinstance(cfg.get('fallback'),dict):raise ValueError('曲設定が正しくありません')
-   return cfg
+   return add_sample_music_once(cfg,self.DIFFICULTIES)
   except Exception:
    try:CFG.rename(CFG.with_name('settings_broken_'+datetime.now().strftime('%Y%m%d_%H%M%S')+'.json'))
    except OSError:pass
-   return json.loads(json.dumps(DEFAULT))
+   return add_sample_music_once(json.loads(json.dumps(DEFAULT)),self.DIFFICULTIES)
  def export_config(self):
   self.save()
   target=filedialog.asksaveasfilename(title='設定をバックアップ',defaultextension='.json',initialfile='EclipticaMusicCompanion_backup.json',filetypes=[('JSON','*.json')])
@@ -600,6 +618,8 @@ class App:
    if not messagebox.askyesno('確認','現在の設定をバックアップの内容で置き換えますか？'):return
    restored=json.loads(json.dumps(DEFAULT));restored.update(obj)
    if not isinstance(restored.get('fallback'),dict):raise ValueError('予備MP3の設定が正しくありません')
+   # Restore means exactly the user's backup; don't add samples on next start.
+   restored['sample_music_initialized']=True
    self.cfg=restored
    self.overlay_cfg=self._overlay_options()
    self.meter.configure(self.overlay_cfg['name'],self.overlay_cfg['seconds'])

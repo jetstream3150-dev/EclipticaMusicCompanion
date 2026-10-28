@@ -74,6 +74,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_tcl_runtime
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_sample_music
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check party.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tools/test_party_client.js
@@ -316,6 +318,13 @@ jobs:
             }
           }
           Write-Host 'PASS: standalone EXE, Tcl/Tk and GUI/HUD startup'
+
+      - name: Check YouTube sample playback in Edge
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          python tools/test_youtube_playback.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Scan the exact standalone EXE with Microsoft Defender
         shell: pwsh
