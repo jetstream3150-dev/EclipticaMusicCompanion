@@ -19,11 +19,8 @@ from urllib.request import Request, urlopen
 from EclipticaMusic import SAMPLE_PHASE_TRACKS
 
 
-TRACKS = list(dict.fromkeys(SAMPLE_PHASE_TRACKS.values())) + [
-    'https://www.youtube.com/watch?v=3X5kGD1xw3s',
-    'https://www.youtube.com/watch?v=oGsl7ag35h0',
-    'https://www.youtube.com/watch?v=92f3RRkakO8',
-]
+TRACKS = ['https://www.youtube.com/watch?v=M7lc1UVf-VE',
+          'https://www.youtube.com/watch?v=yJg-Y5byMMw']
 STATE = {'seq': 0, 'track': '', 'fade': 0, 'volume': .8,
          'stop': False, 'fallback': '', 'volume_seq': 0}
 MESSAGES = []
@@ -102,13 +99,16 @@ def main():
         def iframe_diagnostics():
             try:
                 active = js('return active;')
+                frames = js('return [...document.querySelectorAll("iframe")].map(f=>({id:f.id,src:f.src}));')
+                print('PLAYER FRAMES:', json.dumps(frames), flush=True)
                 frame = call('POST', '/session/' + session + '/element',
                              {'using': 'css selector', 'value': '#yt' + str(active)})
                 call('POST', '/session/' + session + '/frame', {'id': frame})
-                detail = js('return document.body ? document.body.innerText.slice(0,500) : "";')
+                detail = js('return JSON.stringify({url:location.href,referrer:document.referrer,title:document.title,body:document.body ? document.body.innerText.slice(0,500) : ""});')
                 call('POST', '/session/' + session + '/frame', {'id': None})
                 return detail or ''
-            except (OSError, URLError, KeyError, TypeError):
+            except (OSError, URLError, KeyError, TypeError) as exc:
+                print('FRAME DIAGNOSTIC ERROR:', type(exc).__name__, str(exc)[:300], flush=True)
                 try:
                     call('POST', '/session/' + session + '/frame', {'id': None})
                 except (OSError, URLError):
