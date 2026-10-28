@@ -189,8 +189,14 @@ jobs:
             throw 'Defender is unavailable, disabled, or has stale signatures.'
           }
           if ($null -eq $prefs.DisableArchiveScanning -or $prefs.DisableArchiveScanning) {
+            Write-Host 'Enabling Defender archive scanning on this temporary runner.'
+            Set-MpPreference -DisableArchiveScanning $false -ErrorAction Stop
+            $prefs = Get-MpPreference -ErrorAction Stop
+          }
+          if ($null -eq $prefs.DisableArchiveScanning -or $prefs.DisableArchiveScanning) {
             throw 'Defender archive scanning is disabled or could not be verified.'
           }
+          Write-Host 'Defender archive scanning is enabled.'
           foreach ($extension in @($prefs.ExclusionExtension)) {
             if (-not $extension) { continue }
             if (($extension -as [string]).TrimStart('.').ToLowerInvariant() -in @('zip','exe','pyd','dll','html','js')) {
