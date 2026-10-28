@@ -1,8 +1,7 @@
-"""Exercise the actual player engine in Edge, without bypassing autoplay policy.
+"""Check YouTube's documented IFrame example on a Windows test runner.
 
-This optional integration test runs on the disposable Windows build runner.
-If YouTube cannot be reached from the runner, it reports UNVERIFIED instead of
-claiming that playback succeeded. An explicit player error fails the build.
+This compares the app's player with a conventional visible player; it neither
+downloads media nor alters browser security or autoplay settings.
 """
 import json
 import os
@@ -13,25 +12,21 @@ import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from EclipticaMusic import SAMPLE_PHASE_TRACKS
 
-
-TRACKS = ['https://www.youtube.com/watch?v=M7lc1UVf-VE',
-          'https://www.youtube.com/watch?v=yJg-Y5byMMw']
-STATE = {'seq': 0, 'track': '', 'fade': 0, 'volume': .8,
-         'stop': False, 'fallback': '', 'volume_seq': 0}
-MESSAGES = []
-ENGINE = Path('engine.js').read_bytes()
-HTML = b'''<!doctype html><html><head><meta charset="utf-8"><style>
-#players{display:flex;gap:8px;width:100%;min-height:200px}
-</style></head><body><button id="unlock" onclick="unlock()">Unlock</button>
-<p id="status"></p><div id="players"><div id="yt0"></div><div id="yt1"></div></div>
-<script src="/engine.js"></script><script src="https://www.youtube.com/iframe_api"></script>
-</body></html>'''
+HTML = b'''<!doctype html><html><head><meta charset="utf-8"></head>
+<body><button id="play" onclick="player.playVideo()">Play</button>
+<div id="player"></div><script>
+var player, ready=false, errors=[];
+function onYouTubeIframeAPIReady() {
+  player = new YT.Player('player', {height:'200', width:'320',
+    videoId:'M7lc1UVf-VE', playerVars:{playsinline:1},
+    events:{onReady:function(){ready=true;},
+      onError:function(e){errors.push(e.data);}}});
+}
+</script><script src="https://www.youtube.com/iframe_api"></script></body></html>'''
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -39,61 +34,31 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        if self.path == '/':
-            data, content_type = HTML, 'text/html; charset=utf-8'
-        elif self.path == '/engine.js':
-            data, content_type = ENGINE, 'text/javascript; charset=utf-8'
-        elif self.path == '/state':
-            data, content_type = json.dumps(STATE).encode(), 'application/json'
-        else:
+        if self.path != '/':
             self.send_error(404)
             return
         self.send_response(200)
-        self.send_header('Content-Type', content_type)
-        self.send_header('Content-Length', str(len(data)))
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(HTML)))
         self.end_headers()
-        self.wfile.write(data)
-
-    def do_POST(self):
-        if self.path != '/player-status':
-            self.send_error(404)
-            return
-        raw = self.rfile.read(int(self.headers.get('Content-Length', '0')))
-        try:
-            MESSAGES.append(json.loads(raw).get('status', ''))
-        except (ValueError, TypeError):
-            pass
-        self.send_response(204)
-        self.end_headers()
-
-
-def free_port():
-    with socket.socket() as sock:
-        sock.bind(('127.0.0.1', 0))
-        return sock.getsockname()[1]
+        self.wfile.write(HTML)
 
 
 def main():
-    for candidate in list(dict.fromkeys(SAMPLE_PHASE_TRACKS.values())) + [TRACKS[0]]:
-        try:
-            api = 'https://www.youtube.com/oembed?' + urlencode({'url': candidate, 'format': 'json'})
-            with urlopen(api, timeout=8) as response:
-                meta = json.load(response)
-            print('OEMBED:', candidate, 'OK', meta.get('title', '')[:100].encode('unicode_escape').decode(), flush=True)
-        except (HTTPError, URLError, OSError, ValueError) as exc:
-            print('OEMBED:', candidate, 'UNVERIFIED', type(exc).__name__, str(exc)[:100], flush=True)
     driver = Path(os.environ.get('EDGEWEBDRIVER', '')) / 'msedgedriver.exe'
     if not driver.is_file():
-        print('UNVERIFIED: Edge WebDriver is unavailable on this runner.')
+        print('UNVERIFIED: Edge WebDriver is unavailable.')
         return
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    port = free_port()
-    with tempfile.TemporaryDirectory(prefix='ecliptica-yt-test-') as tmp:
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', 0))
+        port = s.getsockname()[1]
+    with tempfile.TemporaryDirectory(prefix='ecliptica-yt-standard-') as tmp:
         proc = subprocess.Popen([str(driver), '--port=' + str(port)],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        session = None
         base = 'http://127.0.0.1:' + str(port)
+        session = None
 
         def call(method, path, payload=None):
             data = None if payload is None else json.dumps(payload).encode()
@@ -105,27 +70,8 @@ def main():
         def js(script):
             return call('POST', '/session/' + session + '/execute/sync', {'script': script, 'args': []})
 
-        def iframe_diagnostics():
-            try:
-                active = js('return active;')
-                frames = js('return [...document.querySelectorAll("iframe")].map(f=>({id:f.id,src:f.src}));')
-                print('PLAYER FRAMES:', json.dumps(frames), flush=True)
-                frame = call('POST', '/session/' + session + '/element',
-                             {'using': 'css selector', 'value': '#yt' + str(active)})
-                call('POST', '/session/' + session + '/frame', {'id': frame})
-                detail = js('return JSON.stringify({url:location.href,referrer:document.referrer,title:document.title,body:document.body ? document.body.innerText.slice(0,500) : "",error:document.querySelector(".ytp-error-content")?.textContent?.slice(0,500)||""});')
-                call('POST', '/session/' + session + '/frame', {'id': None})
-                return detail or ''
-            except (OSError, URLError, KeyError, TypeError) as exc:
-                print('FRAME DIAGNOSTIC ERROR:', type(exc).__name__, str(exc)[:300], flush=True)
-                try:
-                    call('POST', '/session/' + session + '/frame', {'id': None})
-                except (OSError, URLError):
-                    pass
-                return ''
-
         try:
-            for attempt in range(50):
+            for _ in range(50):
                 try:
                     call('GET', '/status')
                     break
@@ -140,45 +86,29 @@ def main():
                  {'url': 'http://127.0.0.1:' + str(server.server_port) + '/'})
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline:
-                if js("return typeof ready!=='undefined' && ready && yt.every(p=>p && typeof p.getPlayerState==='function');"):
+                if js('return ready;'):
                     break
                 time.sleep(.5)
             else:
-                print('UNVERIFIED: YouTube IFrame API did not initialize in this Windows runner.')
+                print('UNVERIFIED: official example player did not initialize.', flush=True)
                 return
-            item = call('POST', '/session/' + session + '/element',
-                        {'using': 'css selector', 'value': '#unlock'})
-            element = item['element-6066-11e4-a52e-4f735466cecf']
-            call('POST', '/session/' + session + '/element/' + element + '/click', {})
-            # Let transient click activation expire, as during a real VRChat game.
-            time.sleep(6)
-            for url in TRACKS:
-                STATE.update(seq=STATE['seq'] + 1, track=url, stop=False)
-                begin = len(MESSAGES)
-                deadline = time.monotonic() + 30
-                while time.monotonic() < deadline:
-                    reports = MESSAGES[begin:]
-                    explicit = next((m for m in reports if 'YouTube再生エラー' in m or
-                                     '埋め込み再生が禁止' in m), None)
-                    if explicit:
-                        detail = iframe_diagnostics()
-                        print('BLOCKED:', url, explicit.encode('unicode_escape').decode(),
-                              'DETAIL:', detail.encode('unicode_escape').decode(), flush=True)
-                        if any(term in detail.lower() for term in ('confirm you\'re not a bot',
-                              'confirm you’re not a bot', 'not a robot', 'ロボットではない')):
-                            print('UNVERIFIED: YouTube requested bot verification; stopping.', flush=True)
-                            return
-                        break
-                    state = js("return {state:yt[active]?.getPlayerState?.(),time:yt[active]?.getCurrentTime?.()};")
-                    if state and state.get('state') == 1 and state.get('time', 0) > 0.2:
-                        print('PASS: YouTube IFrame playback progressed for', url, flush=True)
-                        break
-                    time.sleep(.5)
-                else:
-                    print('UNVERIFIED: YouTube playback did not start in this runner for', url, flush=True)
+            button = call('POST', '/session/' + session + '/element',
+                          {'using':'css selector','value':'#play'})
+            eid = button['element-6066-11e4-a52e-4f735466cecf']
+            call('POST', '/session/' + session + '/element/' + eid + '/click', {})
+            deadline = time.monotonic() + 25
+            while time.monotonic() < deadline:
+                state = js('return {errors:errors,state:player.getPlayerState(),time:player.getCurrentTime()};')
+                if state['errors']:
+                    print('UNVERIFIED: standard official YouTube example failed:', json.dumps(state), flush=True)
                     return
-        except (OSError, URLError, HTTPError, KeyError, TypeError) as exc:
-            print('UNVERIFIED: Windows browser playback test could not finish:', type(exc).__name__, str(exc)[:180])
+                if state['state'] == 1 and state['time'] > .2:
+                    print('PASS: standard official YouTube example played:', json.dumps(state), flush=True)
+                    return
+                time.sleep(.5)
+            print('UNVERIFIED: standard official example did not progress:', json.dumps(state), flush=True)
+        except (OSError, URLError, KeyError, TypeError) as exc:
+            print('UNVERIFIED: standard YouTube check could not finish:', type(exc).__name__, str(exc)[:180], flush=True)
         finally:
             if session:
                 try:
