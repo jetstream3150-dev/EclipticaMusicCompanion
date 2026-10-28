@@ -7,6 +7,7 @@ $report = Join-Path $folder 'DEFENDER_SCAN.txt'
 $stamp = Get-Date -Format o
 "Scan timestamp: $stamp`nTarget: $folder" | Out-File -FilePath $report -Encoding utf8
 try {
+  . (Join-Path $PSScriptRoot 'check_defender_exclusions.ps1')
   if (-not (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue)) {
     'NOT VERIFIED: Microsoft Defender cmdlets are not available on this runner.' | Add-Content $report
     throw 'Defender is unavailable; artifact must not be uploaded.'
@@ -51,6 +52,7 @@ try {
       $s.AntivirusSignatureLastUpdated -lt (Get-Date).AddDays(-2)) {
     throw 'Defender signature age could not be verified or is over two days old.'
   }
+  Assert-DefenderTargetNotExcluded -Target $folder
   "Signatures after update: $($s.AntivirusSignatureVersion); last updated: $($s.AntivirusSignatureLastUpdated.ToString('o'))" | Add-Content $report
   $scanStarted = Get-Date
   Start-MpScan -ScanType CustomScan -ScanPath $folder -ErrorAction Stop
