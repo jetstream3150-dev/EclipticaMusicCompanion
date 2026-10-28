@@ -25,7 +25,8 @@ window.YT={PlayerState:{ENDED:0},Player:function(id,opts){
   this.stopVideo=function(){};this.setVolume=function(){};this.seekTo=function(){};
   this.playVideo=function(){};this.getPlayerState=function(){return -1;};
   this.loadVideoById=function(video){window.__testYoutubeLoads.push(video);
-    setTimeout(function(){opts.events.onError({data:150});},100);};
+    setTimeout(function(){if(video==='Autoplay123')opts.events.onAutoplayBlocked({});
+      else opts.events.onError({data:150});},100);};
   var self=this;setTimeout(function(){opts.events.onReady({target:self});},0);
 }};
 onYouTubeIframeAPIReady();'''
@@ -166,10 +167,14 @@ def main():
             print('PASS: UI preview reaches real backend; simulated YouTube rejection starts audible battle WAV', flush=True)
 
             # Simulate an automatic scene event without another user click.
+            # Wait past the normal transient click-activation window first.
+            time.sleep(6)
+            call('POST', '/session/' + session + '/window/minimize', {})
+            wait_for(lambda: js('return document.hidden;'), 'minimized browser state')
             music.UI_APP.player.play(music.SAMPLE_PHASE_TRACKS['ボス'])
             boss = wait_for(lambda: playing('boss.wav'), 'automatic boss music switch')
             assert boss['loads'] == 2 and 'エラー150' in boss['status'], boss
-            print('PASS: automatic scene change starts the boss fallback', flush=True)
+            print('PASS: automatic scene change starts the boss fallback while minimized', flush=True)
 
             music.UI_APP.player.play('https://www.youtube.com/watch?v=AAAAAAAAAAA')
             def rejected():
@@ -178,6 +183,12 @@ def main():
             reject = wait_for(rejected, 'unsupported video rejection')
             assert js('return aud.every(a=>a.paused);'), reject
             print('PASS: rejected custom YouTube track stops with a clear error', flush=True)
+
+            custom_fallback = str(ROOT / 'demo_audio' / 'battle.wav')
+            music.UI_APP.player.play('https://www.youtube.com/watch?v=Autoplay123', custom_fallback)
+            autoplay = wait_for(lambda: playing('battle.wav'), 'autoplay-blocked fallback')
+            assert '自動再生' in autoplay['status'] and '予備BGM' in autoplay['status'], autoplay
+            print('PASS: a simulated browser autoplay block starts the configured fallback', flush=True)
         finally:
             if session:
                 try: call('DELETE', '/session/' + session)
