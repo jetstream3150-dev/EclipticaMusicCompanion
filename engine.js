@@ -134,12 +134,20 @@ async function runPending() {
     setGain(i, t); setGain(old, (1 - t) * initialOld);
     if (t < 1) fadeFrame = requestAnimationFrame(step); else stop(old);
   }
-  fadeFrame = requestAnimationFrame(step);
+  // Chromium can suspend animation frames for a minimized window. Finish the
+  // transition immediately there so the newly playing track is not left muted.
+  if (document.hidden) { setGain(i, 1); stop(old); }
+  else fadeFrame = requestAnimationFrame(step);
 }
 function unlock() {
   unlocked = true; status('再生を有効化しました');
   if (pending) runPending();
 }
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && currentTask && !pending) {
+    cancelAnimationFrame(fadeFrame); setGain(active, 1); stop(1 - active);
+  }
+});
 // Keep this name separate from the UI's own status polling function.
 async function pollEngine() {
   try {
