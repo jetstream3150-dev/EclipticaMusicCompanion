@@ -74,6 +74,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_tcl_runtime
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_sample_music
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check party.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tools/test_party_client.js
