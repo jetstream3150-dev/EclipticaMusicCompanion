@@ -263,10 +263,98 @@ jobs:
           }
           Write-Host "PASS: command-line archive scan of the exact ZIP, SHA-256 $before"
 
+      - name: Build a standalone Windows EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $singleDir = Join-Path $env:ECLIPTICA_SCAN_ROOT 'standalone'
+          $specDir = Join-Path $env:RUNNER_TEMP 'ecliptica-onefile-spec'
+          New-Item -ItemType Directory -Path $singleDir, $specDir -Force | Out-Null
+          $pyiArgs = @(
+            '-m', 'PyInstaller', '--noconfirm', '--clean', '--onefile', '--windowed',
+            '--noupx', '--name', 'EclipticaMusicCompanion',
+            '--distpath', $singleDir,
+            '--workpath', (Join-Path $env:RUNNER_TEMP 'ecliptica-onefile-work'),
+            '--specpath', $specDir,
+            '--exclude-module', 'yt_dlp', '--exclude-module', 'imageio_ffmpeg'
+          )
+          foreach ($asset in @('player.html', 'unified.html', 'engine.js', 'party.js',
+                               'boss_weakness_data.txt', 'LICENSE_EclipticaHUD-C.txt')) {
+            $pyiArgs += @('--add-data', ((Resolve-Path -LiteralPath $asset).Path + ';.'))
+          }
+          $tclDir = (& python -c "import tkinter as tk; print(tk.Tcl().eval('info library'))").Trim()
+          if (-not $tclDir.StartsWith('//zipfs:/')) {
+            $tkVersion = (& python -c "import tkinter as tk; print(tk.TkVersion)").Trim()
+            $tkDir = Join-Path (Split-Path -Parent $tclDir) ('tk' + $tkVersion)
+            if (-not (Test-Path (Join-Path $tclDir 'init.tcl'))) { throw 'Tcl init.tcl is missing.' }
+            if (-not (Test-Path (Join-Path $tkDir 'tk.tcl'))) { throw 'Tk tk.tcl is missing.' }
+            $pyiArgs += @('--add-data', ($tclDir + ';_tcl_data'), '--add-data', ($tkDir + ';_tk_data'))
+          }
+          $pyiArgs += (Resolve-Path -LiteralPath 'EclipticaMusic.py').Path
+          & python @pyiArgs
+          if ($LASTEXITCODE -ne 0) { throw "Standalone PyInstaller build failed: $LASTEXITCODE" }
+          if (-not (Test-Path -LiteralPath (Join-Path $singleDir 'EclipticaMusicCompanion.exe'))) {
+            throw 'Standalone EXE is missing.'
+          }
+
+      - name: Test the standalone EXE and HUD
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'ecliptica-onefile-gui-test'
+          $env:ECLIPTICA_TK_SELF_TEST_REPORT = Join-Path $env:RUNNER_TEMP 'onefile-tk-error.txt'
+          $env:ECLIPTICA_GUI_SELF_TEST_REPORT = Join-Path $env:RUNNER_TEMP 'onefile-gui-error.txt'
+          $exe = (Resolve-Path (Join-Path $env:ECLIPTICA_SCAN_ROOT 'standalone/EclipticaMusicCompanion.exe')).Path
+          foreach ($option in @('--tk-self-test', '--gui-self-test')) {
+            $probe = Start-Process -FilePath $exe -ArgumentList $option -PassThru
+            if (-not $probe.WaitForExit(60000)) { $probe.Kill(); throw "Standalone $option timed out." }
+            if ($probe.ExitCode -ne 0) {
+              foreach ($report in @($env:ECLIPTICA_TK_SELF_TEST_REPORT, $env:ECLIPTICA_GUI_SELF_TEST_REPORT)) {
+                if (Test-Path -LiteralPath $report) { Get-Content -LiteralPath $report }
+              }
+              throw "Standalone $option failed with exit code $($probe.ExitCode)."
+            }
+          }
+          Write-Host 'PASS: standalone EXE, Tcl/Tk and GUI/HUD startup'
+
+      - name: Scan the exact standalone EXE with Microsoft Defender
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $folder = Join-Path $env:ECLIPTICA_SCAN_ROOT 'standalone'
+          $exe = (Resolve-Path (Join-Path $folder 'EclipticaMusicCompanion.exe')).Path
+          $before = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash
+          ./tools/windows_defender_scan.ps1 -ReleaseDir $folder
+          . ./tools/check_defender_exclusions.ps1
+          Enable-DefenderTargetScanOnHostedRunner -Target $exe
+          $platform = Join-Path $env:ProgramData 'Microsoft/Windows Defender/Platform'
+          $mpcmd = Get-ChildItem -Path $platform -Filter 'MpCmdRun.exe' -File -Recurse |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $mpcmd) { throw 'The Defender command-line scanner was not found.' }
+          $result = & $mpcmd -Scan -ScanType 3 -File $exe -DisableRemediation 2>&1
+          $scanExit = $LASTEXITCODE
+          $result | Write-Host
+          if ($scanExit -ne 0) { throw "Defender EXE scan failed or found a threat (exit $scanExit)." }
+          if (-not (Test-Path -LiteralPath $exe) -or (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash -ne $before) {
+            throw 'The EXE was removed or changed during its scans.'
+          }
+          $status = Get-MpComputerStatus -ErrorAction Stop
+          Write-Host "PASS: exact standalone EXE scanned, signature $($status.AntivirusSignatureVersion), SHA256 $before"
+
+      - name: Package the exact scanned EXE for encrypted transfer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path (Join-Path $env:ECLIPTICA_SCAN_ROOT 'standalone/EclipticaMusicCompanion.exe')).Path
+          $zip = Join-Path $env:ECLIPTICA_SCAN_ROOT 'EclipticaStandalone-transfer.zip'
+          python -c "import hashlib,pathlib,sys,zipfile; p=pathlib.Path(sys.argv[1]); z=zipfile.ZipFile(sys.argv[2],'w',zipfile.ZIP_DEFLATED); z.write(p,arcname=p.name); z.close(); z=zipfile.ZipFile(sys.argv[2]); assert z.testzip() is None and z.namelist()==[p.name] and hashlib.sha256(z.read(p.name)).digest()==hashlib.sha256(p.read_bytes()).digest(); z.close(); print('PASS: transfer ZIP contains the exact scanned EXE')" $exe $zip
+          if ($LASTEXITCODE -ne 0) { throw 'Could not verify the standalone transfer ZIP.' }
+
       - name: Encrypt the scanned ZIP for a private one-time review
         shell: pwsh
         run: |
-          ./tools/private_review_encrypt.ps1 -ZipFile (Join-Path $env:ECLIPTICA_SCAN_ROOT 'EclipticaMusicCompanion-Windows.zip') -PublicKeyFile tools/private_review_public.pem -OutputFile (Join-Path $env:RUNNER_TEMP 'private-preview-encrypted/payload.enc')
+          ./tools/private_review_encrypt.ps1 -ZipFile (Join-Path $env:ECLIPTICA_SCAN_ROOT 'EclipticaStandalone-transfer.zip') -PublicKeyFile tools/private_review_public.pem -OutputFile (Join-Path $env:RUNNER_TEMP 'private-preview-encrypted/payload.enc')
 
       - name: Transfer encrypted review file
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -291,3 +379,4 @@ jobs:
 
       # This repository is public. Keep all binaries on the temporary runner
       # until the Chrome warning and the distribution checks are resolved.
+
