@@ -31,7 +31,7 @@ STATE = {'seq': 0, 'track': '', 'fade': 0, 'volume': .8,
 MESSAGES = []
 ENGINE = Path('engine.js').read_bytes()
 HTML = b'''<!doctype html><html><head><meta charset="utf-8"><style>
-#players{position:absolute;left:-10000px;top:-10000px;width:320px;height:200px;pointer-events:none}
+#players{display:flex;gap:8px;min-height:200px}
 </style></head><body><button id="unlock" onclick="unlock()">Unlock</button>
 <p id="status"></p><div id="players"><div id="yt0"></div><div id="yt1"></div></div>
 <script src="/engine.js"></script><script src="https://www.youtube.com/iframe_api"></script>
@@ -117,7 +117,7 @@ def main():
                  {'url': 'http://127.0.0.1:' + str(server.server_port) + '/'})
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline:
-                if js("return typeof ready!=='undefined' && ready && yt.every(p=>p && typeof p.getPlayerState==='function');"):
+                if js("return typeof ready!=='undefined' && ready && ytReady.every(Boolean) && yt.every(p=>p && typeof p.getPlayerState==='function');"):
                     break
                 time.sleep(.5)
             else:
@@ -136,7 +136,10 @@ def main():
                 while time.monotonic() < deadline:
                     reports = MESSAGES[begin:]
                     explicit = next((m for m in reports if 'YouTube再生エラー' in m or
-                                     '埋め込み再生が禁止' in m), None)
+                                     'YouTubeで再生できません' in m or
+                                     'YouTubeの自動再生を止めました' in m or
+                                     'YouTube動画が見つからない' in m or
+                                     'YouTubeがプレイヤーの識別情報' in m), None)
                     if explicit:
                         if url == CONTROL:
                             print('UNVERIFIED: Official YouTube control failed in this runner; '
