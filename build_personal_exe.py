@@ -87,8 +87,8 @@ def main() -> None:
                 "--exclude-module", "imageio_ffmpeg"]
         for asset in ("player.html", "unified.html", "engine.js", "party.js",
                       "boss_weakness_data.txt", "LICENSE_EclipticaHUD-C.txt"):
-            args.extend(["--add-data", asset + ";."])
-        run(args + ["EclipticaMusic.py"], env=build_env)
+            args.extend(["--add-data", str(ROOT / asset) + ";."])
+        run(args + [str(ROOT / "EclipticaMusic.py")], env=build_env)
         app_folder = output / "EclipticaMusicCompanion"
         executable = app_folder / "EclipticaMusicCompanion.exe"
         run([py, "tools/verify_release.py", str(app_folder)], env=build_env)
