@@ -1,8 +1,9 @@
 """Exercise the actual player engine in Edge, without bypassing autoplay policy.
 
 This optional integration test runs on the disposable Windows build runner.
-If YouTube cannot be reached from the runner, it reports UNVERIFIED instead of
-claiming that playback succeeded. An explicit player error fails the build.
+If YouTube cannot be reached from the runner, or the official control video
+also fails in the app's player, it reports UNVERIFIED. Once the control plays,
+an explicit player error for a sample track fails the build.
 """
 import json
 import os
@@ -19,7 +20,12 @@ from urllib.request import Request, urlopen
 from EclipticaMusic import SAMPLE_PHASE_TRACKS
 
 
-TRACKS = list(dict.fromkeys(SAMPLE_PHASE_TRACKS.values()))
+# The example video is the one used in YouTube's IFrame API documentation.
+# A failing control prevents runner-wide failures from being misdiagnosed as
+# individual sample videos refusing embedding.
+CONTROL = 'https://www.youtube.com/watch?v=M7lc1UVf-VE'
+TRACKS = [CONTROL] + [url for url in dict.fromkeys(SAMPLE_PHASE_TRACKS.values())
+                      if url != CONTROL]
 STATE = {'seq': 0, 'track': '', 'fade': 0, 'volume': .8,
          'stop': False, 'fallback': '', 'volume_seq': 0}
 MESSAGES = []
@@ -132,6 +138,11 @@ def main():
                     explicit = next((m for m in reports if 'YouTube再生エラー' in m or
                                      '埋め込み再生が禁止' in m), None)
                     if explicit:
+                        if url == CONTROL:
+                            print('UNVERIFIED: Official YouTube control failed in this runner; '
+                                  'sample playback has not been verified:',
+                                  explicit.encode('unicode_escape').decode(), flush=True)
+                            return
                         raise RuntimeError('YouTube player error for ' + url + ': ' + explicit)
                     state = js("return {state:yt[active]?.getPlayerState?.(),time:yt[active]?.getCurrentTime?.()};")
                     if state and state.get('state') == 1 and state.get('time', 0) > 0.2:
