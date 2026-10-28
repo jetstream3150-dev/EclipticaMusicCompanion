@@ -323,7 +323,7 @@ jobs:
         shell: pwsh
         timeout-minutes: 4
         run: |
-          python tools/test_youtube_playback.py
+          python -m tools.test_youtube_playback
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Scan the exact standalone EXE with Microsoft Defender
