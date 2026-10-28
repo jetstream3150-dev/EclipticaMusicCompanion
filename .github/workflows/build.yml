@@ -227,6 +227,42 @@ jobs:
           Write-Host "PASS: Defender ZIP scan, signature $($status.AntivirusSignatureVersion), SHA-256 $before"
           Write-Host 'NOT CLEARED: Chrome warning remains under investigation; no file is uploaded.'
 
+      - name: Verify archive scanning with a harmless control and rescan the ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $platform = Join-Path $env:ProgramData 'Microsoft/Windows Defender/Platform'
+          $mpcmd = Get-ChildItem -Path $platform -Filter 'MpCmdRun.exe' -File -Recurse |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $mpcmd) { throw 'The Defender command-line scanner was not found.' }
+          $control = Join-Path $env:RUNNER_TEMP 'ecliptica-harmless-control.zip'
+          $zip = (Resolve-Path (Join-Path $env:ECLIPTICA_SCAN_ROOT 'EclipticaMusicCompanion-Windows.zip')).Path
+          # A standard, harmless EICAR control verifies that the engine scans
+          # inside ZIPs. No control file is uploaded or included in the bundle.
+          python -c "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED); z.writestr('control.txt',bytes.fromhex('58354f2150254041505b345c505a58353428505e2937434329377d2445494341522d5354414e444152442d414e544956495255532d544553542d46494c452124482b482a')); z.close()" $control
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create the harmless antivirus control.' }
+          # DisableRemediation applies only to these explicit scans: it keeps
+          # the control available for testing and returns detections as errors.
+          # Real-time Defender protection remains active on the runner.
+          $controlOutput = & $mpcmd -Scan -ScanType 3 -File $control -DisableRemediation 2>&1
+          $controlExit = $LASTEXITCODE
+          if ($controlExit -ne 2 -or ($controlOutput | Out-String) -notmatch '(?i)eicar') {
+            $controlOutput | Write-Host
+            throw "The harmless archive control was not detected as expected (exit $controlExit)."
+          }
+          Remove-Item -LiteralPath $control -Force
+          Write-Host 'PASS: Defender detected the harmless EICAR control inside a ZIP.'
+          $before = (Get-FileHash -Algorithm SHA256 $zip).Hash
+          $result = & $mpcmd -Scan -ScanType 3 -File $zip -DisableRemediation 2>&1
+          $scanExit = $LASTEXITCODE
+          $result | Write-Host
+          if ($scanExit -ne 0) { throw "Defender command-line ZIP scan failed or found a threat (exit $scanExit)." }
+          if (-not (Test-Path -LiteralPath $zip) -or (Get-FileHash -Algorithm SHA256 $zip).Hash -ne $before) {
+            throw 'The ZIP was removed or changed during the command-line scan.'
+          }
+          Write-Host "PASS: command-line archive scan of the exact ZIP, SHA-256 $before"
+
       - name: Remove temporary scan files
         if: always()
         shell: pwsh
