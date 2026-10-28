@@ -13,6 +13,12 @@ import subprocess
 import sys
 import tempfile
 
+# Some Windows consoles cannot encode Japanese. Status output must not make
+# an otherwise valid build fail when that occurs.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(errors="backslashreplace")
+
 
 ROOT = Path(__file__).resolve().parent
 SOURCE_FILES = {
