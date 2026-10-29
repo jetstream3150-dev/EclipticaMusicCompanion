@@ -76,6 +76,18 @@ def main():
                 status, response = request('/api/view')
                 assert status == 200 and response['ok'], response
                 print('PASS: missing VRChat logs return a visible error without blocking the GUI queue', flush=True)
+
+                status, response = request('/api/action', {'action':'set_music_all','phase':'戦闘',
+                                                           'track':'demo://battle','fallback':''})
+                assert status == 200 and response['ok'], response
+                saved=json.loads(config.read_text(encoding='utf-8'))
+                for difficulty in app.DIFFICULTIES:
+                    assert saved['music'][difficulty+'|戦闘']=='demo://battle', saved['music']
+                status, response = request('/api/action', {'action':'play','track':'demo://battle','fallback':''})
+                assert status == 200 and response['ok'], response
+                status, state = request('/state')
+                assert status == 200 and state['track'].replace('\\','/').endswith('/demo_audio/battle.wav'), state
+                print('PASS: actual GUI saves the built-in preset for every difficulty and resolves its bundled path', flush=True)
             except Exception as exc:
                 result['error'] = exc
             finally:

@@ -38,6 +38,7 @@ def verify(root):
     required = {'EclipticaMusicCompanion.exe', '_internal/unified.html',
                 '_internal/player.html', '_internal/engine.js', '_internal/party.js',
                 '_internal/python314.dll',
+                '_internal/openvr/libopenvr_api_64.dll',
                 '_internal/boss_weakness_data.txt', '_internal/LICENSE_EclipticaHUD-C.txt',
                 '_internal/demo_audio/battle.wav', '_internal/demo_audio/boss.wav', '_internal/demo_audio/calm.wav'}
     found = {e['path'] for e in entries}

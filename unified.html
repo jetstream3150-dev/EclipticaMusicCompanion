@@ -21,7 +21,7 @@ label{font-size:12px;color:#a9c0ca;font-weight:650;display:block;margin:14px 0 9
 input[type=text],input[type=url],input[type=number],select{width:100%;height:44px;border:1px solid #35505c;background:#0d1923;border-radius:9px;padding:0 12px;color:var(--text);font-size:13px;outline:none;min-width:0}input:focus,select:focus{border-color:var(--a);box-shadow:0 0 0 2px #4ce3d329}select{cursor:pointer}
 input[type=range]{accent-color:var(--a);width:100%;cursor:pointer}input[type=checkbox]{accent-color:var(--a)}.row{display:flex;gap:12px;align-items:center}.row>*{min-width:0}.row>input,.row>select{flex:1}.row.wide>button{white-space:nowrap}.twocol{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .btn{font-family:inherit;font-size:13px;font-weight:680;cursor:pointer;border:1px solid #3b5665;color:var(--text);background:#21313e;padding:12px 16px;min-height:44px;border-radius:9px;transition:background .15s,border-color .15s;white-space:nowrap}.btn:hover{background:#2c4756;border-color:#64818d}.btn:disabled{opacity:.45;cursor:wait}.btn.primary{background:var(--a);border-color:var(--a);color:#062329}.btn.primary:hover{background:#b0fff3}.btn.danger{border-color:#59444a;color:#fac0c5;background:#32232b}.btn.danger:hover{background:#4e2f38}.btn.big{width:100%;font-size:16px;min-height:65px;letter-spacing:.02em}.btn.small{font-size:12px;min-height:39px;padding:9px 12px}.btns{display:flex;flex-wrap:wrap;gap:9px}.btns>*{flex:1}
-.muted{color:var(--muted);font-size:12px;line-height:1.7}.overline{font-size:11px;letter-spacing:.18em;color:#7fa6b4;text-transform:uppercase}.hint{padding:14px 16px;background:#0b2228;border-left:3px solid var(--a);border-radius:8px;font-size:12px;color:#bedfe1;line-height:1.75;margin:17px 0}.status{margin-top:16px;border:1px solid #34515b;border-radius:10px;padding:13px;color:#c7eef0;font-size:12px;overflow-wrap:anywhere;line-height:1.6}
+.muted{color:var(--muted);font-size:12px;line-height:1.7}.overline{font-size:11px;letter-spacing:.18em;color:#7fa6b4;text-transform:uppercase}.hint{padding:14px 16px;background:#0b2228;border-left:3px solid var(--a);border-radius:8px;font-size:12px;color:#bedfe1;line-height:1.75;margin:17px 0}.status{margin-top:16px;border:1px solid #34515b;border-radius:10px;padding:13px;color:#c7eef0;font-size:12px;overflow-wrap:anywhere;line-height:1.6;white-space:pre-line}
 aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;background:#0c141b}.side-head{font-size:12px;letter-spacing:.20em;color:#9bbcc4;margin-bottom:18px}.side-card{background:#13212a;border:1px solid #2a424b;padding:18px;border-radius:13px;margin-bottom:15px}.indicator{display:flex;align-items:center;gap:9px;font-size:12px;color:#b8cdd6}.dot{width:8px;height:8px;border-radius:100%;background:#efad60;box-shadow:0 0 9px #e6af5588}.dot.ok{background:var(--a);box-shadow:0 0 9px #55e0ce88}.bigstatus{font-size:13px;font-weight:650;line-height:1.7;margin:15px 0;overflow-wrap:anywhere}.smallcap{color:#7da4b2;font-size:10px;letter-spacing:.15em;margin:18px 0 7px}.tiny{color:#b2c9ce;font-size:12px;overflow-wrap:anywhere;line-height:1.5;max-height:100px;overflow:auto}.sidebuttons{display:grid;gap:8px}.sidebuttons .btn{width:100%}.meter{display:flex;justify-content:space-between;color:var(--muted);font-size:12px}
 .download{margin-top:20px;border-top:1px solid var(--line);padding-top:8px}.check{font-size:12px;font-weight:400;color:#c1d2da;line-height:1.7;display:flex;gap:8px;align-items:flex-start}.check input{margin-top:3px}
 .toast{position:fixed;z-index:8;bottom:25px;left:50%;transform:translateX(-50%);padding:13px 20px;max-width:calc(100vw - 32px);min-width:240px;text-align:center;pointer-events:none;border:1px solid #396c70;background:#14292e;color:#cbfff4;box-shadow:0 15px 44px #0009;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s}.toast.show{opacity:1}.toast.error{border-color:#a96773;background:#302027;color:#ffe2e6}
@@ -47,11 +47,14 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
   <div class="card"><div class="cardh">▶　クイックスタート</div><button class="btn primary big" id="start">音楽をスタートする</button><p class="muted">初回のクリックでプレイヤーを有効化し、VRChatのログ監視を開始します。</p><div class="btns"><button class="btn danger" data-action="stop">■ 音楽を停止</button><button class="btn" data-action="stop_watch">■ 自動切替を停止</button></div></div>
   <div class="card"><div class="cardh">シーンを選んで試聴</div><div class="twocol"><div><label for="home-diff">難易度</label><select id="home-diff"></select></div><div><label for="home-phase">場面</label><select id="home-phase"></select></div></div><button class="btn" id="home-preview" style="margin-top:16px">▶ 選んだ場面の曲を試す</button><div class="hint">① 曲を設定 → ② 音楽をスタート → ③ あとはVRChatで遊ぶだけ。</div></div>
   <div class="card"><div class="cardh">検知したイベント</div><div class="muted" id="event-info">検知イベント: なし</div><div class="status" id="app-status">準備中…</div></div>
+  <div class="card"><div class="cardh">音が出ないとき</div><p class="muted">プレイヤー、音量、VRChatログの状態をこのPC内で確認します。</p><button class="btn" id="diagnose">🔍 ワンタップ診断</button><div class="status" id="diagnosis" aria-live="polite">ボタンを押すと診断結果を表示します。</div></div>
  </section>
  <section class="panel" id="music">
   <header><div class="eyebrow">02 / CUSTOMIZE</div><h1 class="heading">曲を設定する。</h1><div class="lead">難易度・場面ごとに、YouTubeのURLかローカルの音声ファイルを指定。<br>最初はNCSのサンプル曲が入っています。再生できない場合は内蔵の試用BGMに切り替わります。</div></header>
   <div class="card"><div class="cardh">01　難易度と場面</div><div class="twocol"><div><label for="music-diff">難易度</label><select id="music-diff"></select></div><div><label for="music-phase">場面</label><select id="music-phase"></select></div></div><div class="muted" style="margin-top:12px">「戦闘」は道中の音楽です。</div></div>
+  <div class="card"><div class="cardh">内蔵の試用曲を選ぶ</div><p class="muted">オリジナルの短いループ曲です。URLを入力せず使えます。</p><div class="row"><select id="music-preset"><option value="demo://battle">戦闘用</option><option value="demo://boss">ボス戦用</option><option value="demo://calm">落ち着いた曲</option></select><button class="btn" data-preset="music">この曲を入力</button></div></div>
   <div class="card"><div class="cardh">02　音源を指定</div><label for="music-track">YouTube URL または音楽ファイル</label><div class="row wide"><input id="music-track" type="text" placeholder="https://www.youtube.com/watch?v=..." spellcheck="false"><button class="btn small" data-pick="music-track">ファイル</button></div><label for="music-fallback">予備MP3（YouTubeが再生できないとき）</label><div class="row wide"><input id="music-fallback" type="text" placeholder="必要な場合のみ" spellcheck="false"><button class="btn small" data-pick="music-fallback">ファイル</button></div><div class="btns" style="margin-top:21px"><button class="btn primary" id="music-save">✓ 設定を保存</button><button class="btn" id="music-preview">▶ この曲を試す</button><button class="btn danger" data-action="stop">■ 停止</button></div><p class="muted">入力後は自動保存されます。</p></div>
+  <div class="card"><div class="cardh">曲の確認</div><p id="music-check" class="status" aria-live="polite">未確認。保存または試聴すると再生結果を表示します。</p><button class="btn" id="music-apply-all">この場面を全難易度に設定</button><p class="muted">現在の曲と予備音源を、選択した場面のすべての難易度に設定します。</p></div>
   <div class="card download"><div class="cardh">音源を登録する（Lite版）</div><p class="muted">この版ではMP3へのダウンロード・変換を停止しています。上の「ファイル」ボタンで手持ちの音源を登録できます。YouTube URLの再生は引き続き使えます。</p></div>
  </section>
  <section class="panel" id="boss">
@@ -63,6 +66,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
    <div class="row"><input type="text" id="boss-custom" placeholder="例: ボスのログ上の名前" maxlength="120"><button class="btn small" id="boss-add">＋ 追加</button></div>
    <p class="muted">ボス名はVRChatログの名前と一致させてください。追加した名前にも専用BGMを設定できます。</p>
   </div>
+  <div class="card"><div class="cardh">内蔵の試用曲を選ぶ</div><div class="row"><select id="boss-preset"><option value="demo://boss">ボス戦用</option><option value="demo://battle">戦闘用</option><option value="demo://calm">落ち着いた曲</option></select><button class="btn" data-preset="boss">この曲を入力</button></div><p id="boss-check" class="status" aria-live="polite">未確認。保存または試聴すると再生結果を表示します。</p></div>
   <div class="card"><div class="cardh">02　専用BGM</div><label for="boss-track">YouTube URL または音楽ファイル</label><div class="row wide"><input type="text" id="boss-track" placeholder="ボス専用の音楽" spellcheck="false"><button class="btn small" data-pick="boss-track">ファイル</button></div><label for="boss-fallback">予備MP3</label><div class="row wide"><input type="text" id="boss-fallback" placeholder="必要な場合のみ" spellcheck="false"><button class="btn small" data-pick="boss-fallback">ファイル</button></div><div class="btns" style="margin-top:21px"><button class="btn primary" id="boss-save">✓ 設定を保存</button><button class="btn" id="boss-preview">▶ この曲を試す</button><button class="btn danger" data-action="stop">■ 停止</button></div><p class="muted">ボス固有の音楽が未設定の場合、難易度別のボスBGMが使用されます。</p></div>
   <div class="card download"><div class="cardh">音源を登録する（Lite版）</div><p class="muted">この版ではMP3へのダウンロード・変換を停止しています。上の「ファイル」ボタンで手持ちの音源を登録できます。YouTube URLの再生は引き続き使えます。</p></div>
  </section>
@@ -81,6 +85,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
    <label class="check"><input id="hud-weakness" type="checkbox" checked>HUDにボスの弱点・耐性を表示する</label>
    <label class="check"><input id="hud-party" type="checkbox" checked>共有中は別のパーティーHUDを表示する</label>
    <label class="check"><input id="hud-widgets" type="checkbox">弱点・トークン・ダミーを個別ウィジェットとして自由配置する</label><p class="muted">表示されたウィジェットの上端をドラッグすると位置を保存します。</p>
+   <label class="check"><input id="hud-vr" type="checkbox">SteamVRヘッドセット内にHUDを表示する（試験機能）</label><p class="muted" id="hud-vr-status">OFF</p><p class="muted">SteamVRが必要です。初期状態はOFF。視界の下側に表示します。実機で位置と見え方を確認してください。</p>
    <label for="hud-volume">警告音量（BGMとは別） <span id="hud-volume-label">65</span>%</label><input id="hud-volume" type="range" min="0" max="100" value="65">
    <label for="hud-sound-path">カスタム警告音（WAV / MP3）</label><div class="row wide"><input id="hud-sound-path" type="text" placeholder="空欄なら標準音"><button class="btn small" id="hud-sound-pick">ファイル</button></div><p class="muted">WAVは16ビットPCM形式に対応します。ファイルがない場合や再生できない場合は標準音を鳴らします。</p>
    <div class="btns" style="margin-top:17px"><button class="btn primary" id="hud-save">✓ HUDの設定を保存</button><button class="btn" id="hud-test">♪ 警告音を試す</button></div>
@@ -107,7 +112,8 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
   </div>
   <div class="card"><div class="cardh">ボスの弱点・耐性 <small>参考情報</small></div><p id="hud-boss-weakness" class="muted">ボスの検出を待っています。</p><p class="muted">データに形態別の記載がない場合は共通情報を表示します。ゲームの更新などにより実際と異なる場合があります。</p></div>
   <div class="card"><div class="cardh">トークンと練習ダミー <small>ログから推定</small></div><p id="hud-tokens" class="muted">トークン：計測待ち</p><p id="hud-dummy" class="muted">練習ダミー：計測待ち</p><p class="muted">ログから確認できた分だけを集計します。休憩中の攻撃は練習ダミーとして計測し、ボスへのダメージとは分けます。</p></div>
-  <div class="card"><div class="cardh">利用前の注意</div><p class="muted">VRChatの設定 → デバッグ → ログ出力を「完全」にしてください。ログの形式はワールド更新によって変わるため、現時点のDPS・ターゲット検知は試験的です。ログに該当イベントが出ていないと0や未検出になります。ターゲットは推定であり、戦闘中の安全を保証しません。</p><p class="muted">このHUDはWindowsのデスクトップ用です。SteamVRのヘッドセット内表示には未対応。フルスクリーン排他モードでは表示されないことがあります。</p></div>
+  <div class="card"><div class="cardh">戦闘リザルト <small>このPCだけに保存</small></div><p class="muted">ボスの区間が終了・切り替わると記録します。途中参加や監視停止の記録は部分集計です。勝敗は判定しません。直近20件を表示します。</p><div style="overflow:auto"><table style="width:100%;font-size:12px;text-align:left"><thead><tr><th>日時</th><th>ボス</th><th>時間</th><th>ダメージ</th><th>平均DPS</th><th>前回比</th></tr></thead><tbody id="battle-results"></tbody></table></div><p class="muted" id="results-empty">まだ記録はありません。</p></div>
+  <div class="card"><div class="cardh">利用前の注意</div><p class="muted">VRChatの設定 → デバッグ → ログ出力を「完全」にしてください。ログの形式はワールド更新によって変わるため、現時点のDPS・ターゲット検知は試験的です。ログに該当イベントが出ていないと0や未検出になります。ターゲットは推定であり、戦闘中の安全を保証しません。</p><p class="muted">デスクトップHUDとSteamVR HUDは別々にONにできます。SteamVR HUDは試験機能です。デスクトップHUDはフルスクリーン排他モードでは表示されないことがあります。</p></div>
  </section>
  <section class="panel" id="other">
   <header><div class="eyebrow">05 / PREFERENCES</div><h1 class="heading">その他の設定。</h1><div class="lead">ロビーBGMや再生・ログ検出の詳細を調整します。</div></header>
@@ -147,8 +153,8 @@ function fillBossDropdown(names,custom){
  if(previous&&values.includes(previous))box.value=previous;
  $('boss-count').textContent=values.length+' 種類（検出したボスを含む）';
 }
-function loadHudFields(o){$('hud-show').checked=!!o.show;$('hud-auto-name').checked=o.auto_name!==false;$('hud-name').readOnly=$('hud-auto-name').checked;$('hud-name').placeholder=$('hud-auto-name').checked?'VRChatから取得中…':'自分のVRChat表示名を入力';$('hud-detect-name').disabled=!$('hud-auto-name').checked;$('hud-name').value=o.name||'';$('hud-seconds').value=o.seconds||10;$('hud-opacity').value=o.opacity||92;$('hud-alert').checked=o.alert!==false;$('hud-other-alert').checked=!!o.other_alerts;$('hud-weakness').checked=o.show_weakness!==false;$('hud-party').checked=o.show_party!==false;$('hud-widgets').checked=!!o.separate_widgets;$('hud-sound-path').value=o.sound_path||'';$('hud-volume').value=o.volume??65;$('hud-volume-label').textContent=$('hud-volume').value;}
-function hudPayload(){return{show:$('hud-show').checked,auto_name:$('hud-auto-name').checked,name:$('hud-name').value.trim(),seconds:parseInt($('hud-seconds').value),opacity:parseInt($('hud-opacity').value),alert:$('hud-alert').checked,other_alerts:$('hud-other-alert').checked,show_weakness:$('hud-weakness').checked,show_party:$('hud-party').checked,separate_widgets:$('hud-widgets').checked,sound_path:$('hud-sound-path').value.trim(),volume:parseInt($('hud-volume').value)}}
+function loadHudFields(o){$('hud-show').checked=!!o.show;$('hud-vr').checked=!!o.vr_show;$('hud-auto-name').checked=o.auto_name!==false;$('hud-name').readOnly=$('hud-auto-name').checked;$('hud-name').placeholder=$('hud-auto-name').checked?'VRChatから取得中…':'自分のVRChat表示名を入力';$('hud-detect-name').disabled=!$('hud-auto-name').checked;$('hud-name').value=o.name||'';$('hud-seconds').value=o.seconds||10;$('hud-opacity').value=o.opacity||92;$('hud-alert').checked=o.alert!==false;$('hud-other-alert').checked=!!o.other_alerts;$('hud-weakness').checked=o.show_weakness!==false;$('hud-party').checked=o.show_party!==false;$('hud-widgets').checked=!!o.separate_widgets;$('hud-sound-path').value=o.sound_path||'';$('hud-volume').value=o.volume??65;$('hud-volume-label').textContent=$('hud-volume').value;}
+function hudPayload(){return{show:$('hud-show').checked,vr_show:$('hud-vr').checked,auto_name:$('hud-auto-name').checked,name:$('hud-name').value.trim(),seconds:parseInt($('hud-seconds').value),opacity:parseInt($('hud-opacity').value),alert:$('hud-alert').checked,other_alerts:$('hud-other-alert').checked,show_weakness:$('hud-weakness').checked,show_party:$('hud-party').checked,separate_widgets:$('hud-widgets').checked,sound_path:$('hud-sound-path').value.trim(),volume:parseInt($('hud-volume').value)}}
 function fillMusic(){if(!model)return;currentMusicKey=$('music-diff').value+'|'+$('music-phase').value;$('music-track').value=model.music[currentMusicKey]||'';$('music-fallback').value=model.fallback[currentMusicKey]||''}
 function fillBoss(){if(!model)return;currentBoss=$('boss-name').value.trim();$('boss-track').value=model.boss[currentBoss]||'';$('boss-fallback').value=model.fallback['boss|'+currentBoss]||''}
 async function loadConfig(first=false){const x=await request('/api/config');const prevKey=currentMusicKey,prevBoss=currentBoss;
@@ -177,6 +183,41 @@ function captureMusic(){if(!currentMusicKey)return null;const [difficulty,phase]
 async function saveMusic(silent=false){const d=captureMusic();if(!d)return;model.music[currentMusicKey]=d.track;model.fallback[currentMusicKey]=d.fallback;return safe('set_music',d,silent)}
 function captureBoss(){return{boss:currentBoss,track:$('boss-track').value.trim(),fallback:$('boss-fallback').value.trim()}}
 async function saveBoss(silent=false){if(!currentBoss)return;const d=captureBoss();model.boss[currentBoss]=d.track;model.fallback['boss|'+currentBoss]=d.fallback;return safe('set_boss',d,silent)}
+let activeCheck=null,checkTimer=null;
+function checkMatches(input,reported){
+ if(input.startsWith('demo://'))return reported.replaceAll('\\','/').endsWith('/demo_audio/'+input.slice(7)+'.wav');
+ return input===reported;
+}
+function markUnchecked(kind){
+ if(activeCheck&&activeCheck.kind===kind){activeCheck=null;clearTimeout(checkTimer)}
+ $(kind+'-check').textContent='未確認。保存または試聴すると再生結果を表示します。';
+}
+async function checkTrack(kind){
+ const track=$(kind+'-track').value.trim(),fallback=$(kind+'-fallback').value.trim();
+ if(!track){markUnchecked(kind);return}
+ const item={kind,track};activeCheck=item;clearTimeout(checkTimer);
+ $(kind+'-check').textContent='再生を確認中です…';
+ checkTimer=setTimeout(()=>{if(activeCheck===item){$(kind+'-check').textContent='再生結果を確認できませんでした。プレーヤーと接続を確認してください。';activeCheck=null}},22000);
+ const result=await safe('play',{track,fallback});
+ if(result===null&&activeCheck===item){clearTimeout(checkTimer);activeCheck=null;$(kind+'-check').textContent='確認を開始できませんでした。入力したURLやファイルを確認してください。'}
+}
+window.addEventListener('ecliptica-check',e=>{
+ if(!activeCheck||!checkMatches(activeCheck.track,e.detail.track))return;
+ $(activeCheck.kind+'-check').textContent=(e.detail.result==='playing'?'再生を確認: ':e.detail.result==='blocked'?'再生できません: ':'未確認: ')+e.detail.message;
+ clearTimeout(checkTimer);activeCheck=null;
+});
+function renderResults(rows){
+ const table=$('battle-results');table.replaceChildren();
+ $('results-empty').hidden=rows.length>0;
+ for(let i=0;i<rows.length;i++){
+  const r=rows[i],prev=rows.slice(i+1).find(x=>x.boss===r.boss&&!x.partial),diff=!r.partial&&prev?Number(r.damage)-Number(prev.damage):null;
+  const row=document.createElement('tr');
+  const when=Number(r.ended_at)>0?new Date(Number(r.ended_at)*1000).toLocaleString():'—';
+  const values=[when,String(r.boss||'不明')+(r.partial?'（部分集計）':''),Number(r.seconds||0).toFixed(1)+'秒',Number(r.damage||0).toLocaleString(),Number(r.average_dps||0).toFixed(1),diff===null?'—':(diff>=0?'+':'')+diff.toLocaleString()];
+  for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.appendChild(cell)}
+  table.appendChild(row);
+ }
+}
 function queueAutosave(fn){clearTimeout(autoSaveTimer);autoSaveTimer=setTimeout(fn,650)}
 function selectPanel(id){document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===id));document.querySelectorAll('.navitem').forEach(el=>el.classList.toggle('active',el.dataset.tab===id))}
 let partyView={status:'未接続',members:[],ownId:''};
@@ -212,15 +253,24 @@ $('party-connect').addEventListener('click',()=>{try{party.connect($('party-invi
 $('party-disconnect').addEventListener('click',()=>party.disconnect());
 for(const id of ['party-sort','party-anonymous'])$(id).addEventListener('change',()=>renderParty());
 for(const nav of document.querySelectorAll('.navitem'))nav.addEventListener('click',()=>selectPanel(nav.dataset.tab));
-for(const id of ['music-diff','music-phase'])$(id).addEventListener('change',()=>{clearTimeout(autoSaveTimer);saveMusic(true);fillMusic()});
-for(const id of ['music-track','music-fallback'])$(id).addEventListener('input',()=>queueAutosave(()=>saveMusic(true)));
-$('music-save').addEventListener('click',()=>saveMusic());
-$('music-preview').addEventListener('click',()=>{unlock();safe('play',{track:$('music-track').value,fallback:$('music-fallback').value})});
+for(const id of ['music-diff','music-phase'])$(id).addEventListener('change',()=>{clearTimeout(autoSaveTimer);saveMusic(true);fillMusic();markUnchecked('music')});
+for(const id of ['music-track','music-fallback'])$(id).addEventListener('input',()=>{markUnchecked('music');queueAutosave(()=>saveMusic(true))});
+$('music-save').addEventListener('click',async()=>{unlock();const saved=await saveMusic();if(saved)checkTrack('music')});
+$('music-preview').addEventListener('click',()=>{unlock();checkTrack('music')});
+$('music-apply-all').addEventListener('click',async()=>{
+ const d=captureMusic();if(!d||!d.track)return toast('先に曲を選択してください',true);
+ if(!confirm('「'+d.phase+'」の全難易度の曲を現在の曲に置き換えますか？'))return;
+ const result=await safe('set_music_all',{phase:d.phase,track:d.track,fallback:d.fallback});if(result)await loadConfig(false);
+});
+for(const button of document.querySelectorAll('[data-preset]'))button.addEventListener('click',()=>{
+ const kind=button.dataset.preset;$(kind+'-track').value=$(kind+'-preset').value;
+ $(kind+'-track').dispatchEvent(new Event('input',{bubbles:true}));toast('内蔵曲を入力しました。保存または試聴できます。');
+});
 $('boss-add').addEventListener('click',()=>{const name=$('boss-custom').value.trim();if(!name)return toast('追加するボス名を入力してください',true);if(name.length>120)return toast('ボス名が長すぎます',true);const select=$('boss-name');if(!Array.from(select.options).some(x=>x.value===name))select.add(new Option(name,name));select.value=name;select.dispatchEvent(new Event('change'));$('boss-custom').value='';safe('add_boss',{boss:name},true);$('boss-count').textContent=select.options.length+' 種類（手動追加を含む）';toast('ボスを選択しました。曲を登録して保存してください。')});
-$('boss-name').addEventListener('change',()=>{clearTimeout(autoSaveTimer);saveBoss(true);fillBoss()});
-for(const id of ['boss-track','boss-fallback'])$(id).addEventListener('input',()=>queueAutosave(()=>saveBoss(true)));
-$('boss-save').addEventListener('click',()=>saveBoss());
-$('boss-preview').addEventListener('click',()=>{unlock();safe('play',{track:$('boss-track').value,fallback:$('boss-fallback').value})});
+$('boss-name').addEventListener('change',()=>{clearTimeout(autoSaveTimer);saveBoss(true);fillBoss();markUnchecked('boss')});
+for(const id of ['boss-track','boss-fallback'])$(id).addEventListener('input',()=>{markUnchecked('boss');queueAutosave(()=>saveBoss(true))});
+$('boss-save').addEventListener('click',async()=>{unlock();const saved=await saveBoss();if(saved)checkTrack('boss')});
+$('boss-preview').addEventListener('click',()=>{unlock();checkTrack('boss')});
 $('hud-save').addEventListener('click',async()=>{await safe('overlay_settings',hudPayload());await loadConfig(false)});
 $('hud-auto-name').addEventListener('change',async()=>{
   $('hud-name').readOnly=$('hud-auto-name').checked;
@@ -236,6 +286,7 @@ $('hud-detect-name').addEventListener('click',async()=>{
 $('hud-test').addEventListener('click',()=>safe('overlay_test',{sound_path:$('hud-sound-path').value.trim(),volume:parseInt($('hud-volume').value)}));
 $('hud-sound-pick').addEventListener('click',async()=>{const path=await safe('pick_alert');if(path)$('hud-sound-path').value=path});
 $('hud-show').addEventListener('change',()=>safe('overlay_settings',hudPayload()));
+$('hud-vr').addEventListener('change',()=>safe('overlay_settings',hudPayload()));
 $('hud-volume').addEventListener('input',e=>$('hud-volume-label').textContent=e.target.value);
 $('lobby-track').addEventListener('input',()=>queueAutosave(()=>safe('set_lobby',{track:$('lobby-track').value},true)));
 $('lobby-save').addEventListener('click',()=>safe('set_lobby',{track:$('lobby-track').value}));
@@ -250,12 +301,28 @@ $('start').addEventListener('click',()=>{unlock();safe('start')});
 $('unlock').addEventListener('click',()=>{unlock();toast('再生を有効化しました')});
 $('master-volume').addEventListener('input',e=>{$('volume-label').textContent=e.target.value;safe('volume',{volume:parseInt(e.target.value)},true)});
 $('quit').addEventListener('click',()=>{if(confirm('Ecliptica Music Companionを終了しますか？'))safe('quit')});
+$('diagnose').addEventListener('click',async()=>{
+ try{
+  const v=await request('/api/view'),d=v.diagnostics||{};
+  const lines=[
+   (d.player_connected?'✓':'△')+' プレイヤー: '+(d.player_connected?'接続中':'未接続。アプリ画面を開き直してください'),
+   (unlocked?'✓':'△')+' 再生の有効化: '+(unlocked?'操作済み':'「再生を有効化」を押してください'),
+   (v.volume>0?'✓':'△')+' アプリ音量: '+v.volume+'%'+(v.volume>0?'':'。音量を上げてください'),
+   (d.log_exists?'✓':'△')+' VRChatログ: '+(d.log_exists?'ファイルを確認':'未確認。VRChatを起動し「最新を探す」を押してください'),
+   (v.monitoring?'✓':'△')+' 自動切替: '+(v.monitoring?'監視中':'停止中。「音楽をスタートする」を押してください'),
+   (ready?'✓':'△')+' YouTube: '+(ready?'プレーヤー準備済み。動画ごとの再生は試聴で確認':'準備できていません。ネット接続を確認してください'),
+   '♪ 現在の状態: '+(v.player||'未確認'),
+   '※ スピーカーやヘッドセットへの実際の出力は、この診断だけでは確認できません。Windowsの出力先も確認してください。'
+  ];$('diagnosis').textContent=lines.join('\n');
+ }catch(e){$('diagnosis').textContent='診断できませんでした。アプリを再起動してください: '+e.message}
+});
 let previousStatus='';async function pollView(){try{
  const v=await request('/api/view');$('app-status').textContent=v.status;$('event-info').textContent=v.event;$('playback-info').textContent=v.player;
  $('engine-label').textContent=v.player.includes('未起動')?'待機中':'プレイヤー接続中';
  $('engine-dot').classList.toggle('ok',v.player.includes('再生中')||v.player.includes('有効化')||v.player.includes('ループ再生'));
  $('monitor-label').textContent=v.monitoring?'監視中':'停止中';$('monitor-dot').classList.toggle('ok',v.monitoring);
  const c=v.combat||{};
+ $('hud-vr-status').textContent=v.vr_status||'OFF';renderResults(v.results||[]);
  party.update(c,!!v.monitoring);
  if($('hud-auto-name').checked&&document.activeElement!==$('hud-name'))$('hud-name').value=c.own_name||'';
  if(v.identity_status)$('hud-name-status').textContent=v.identity_status;

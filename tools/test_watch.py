@@ -1,6 +1,7 @@
 import queue
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -81,7 +82,7 @@ class WatcherTests(unittest.TestCase):
         self.assertEqual(self.event(app.watch_events, 'boss'), 'FlyLord')
         self.assertEqual(app.meter.snapshot()['boss'], 'FlyLord')
 
-    def test_rotates_to_new_session_without_replaying_old_lines(self):
+    def test_rotates_to_new_session_and_resumes_latest_scene(self):
         old = self.directory / 'output_log_2026-10-27_10-00-00.txt'
         old.write_bytes(b'ECLIPTICA - now in stage: Old on phase: 0.1\n')
         app = self.make_app()
@@ -90,6 +91,7 @@ class WatcherTests(unittest.TestCase):
         new = self.directory / 'output_log_2026-10-27_10-01-00.txt'
         new.write_bytes(b'ECLIPTICA - now in lobby\n')
         self.assertEqual(self.event(app.watch_events, 'log'), str(new))
+        self.assertEqual(self.event(app.watch_events, 'phase'), ('ログ切替後・推定ロビー', 'ロビー'))
         with new.open('ab') as f:
             f.write(b'ECLIPTICA - now in stage: New on phase: 0.1\n')
         self.assertEqual(self.event(app.watch_events, 'phase'), ('戦闘開始: New', '戦闘'))
@@ -110,6 +112,24 @@ class WatcherTests(unittest.TestCase):
         app.stop.set();app.watch_events.put((8, 'phase', ('old', 'ロビー')))
         App.drain_watch_events(app)
         self.assertEqual(calls, [('boss', 'current')])
+
+    def test_rotation_recovers_boss_without_replaying_damage(self):
+        old = self.directory / 'output_log_2026-10-27_10-00-00.txt'
+        old.write_bytes(b'ECLIPTICA - now in stage: Old on phase: 0.1\n')
+        app = self.make_app()
+        self.start_watch(app, old, self.directory)
+        self.event(app.watch_events, 'phase')
+        new = self.directory / 'output_log_2026-10-27_10-01-00.txt'
+        new.write_bytes(b'ECLIPTICA - now fighting boss: Yuki on phase: 1\n'
+                        b'2026 Debug - Dealing 1000 STRIKE damage\n')
+        self.event(app.watch_events, 'log')
+        self.assertEqual(self.event(app.watch_events, 'boss'), 'Yuki')
+        self.assertEqual(app.meter.snapshot()['boss_damage'],0)
+        with new.open('ab') as f:f.write(b'2026 Debug - Dealing 10 STRIKE damage\n')
+        deadline = time.monotonic()+4
+        while app.meter.snapshot()['boss_damage'] != 10 and time.monotonic()<deadline:
+            time.sleep(.02)
+        self.assertEqual(app.meter.snapshot()['boss_damage'],10)
 
     def test_restart_and_stop_discard_stale_target_alerts(self):
         root = SimpleNamespace(winfo_exists=lambda: True, after=lambda *args: None)

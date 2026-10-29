@@ -82,6 +82,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_api_gui
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_features
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_steamvr
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_playback_browser
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check engine.js
@@ -102,6 +106,7 @@ jobs:
             '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir', '--windowed',
             '--noupx', '--name', 'EclipticaMusicCompanion',
             '--exclude-module', 'yt_dlp', '--exclude-module', 'imageio_ffmpeg',
+            '--collect-all', 'openvr',
             '--add-data', 'player.html;.', '--add-data', 'unified.html;.',
             '--add-data', 'engine.js;.',
             '--add-data', 'demo_audio;demo_audio',
@@ -176,6 +181,18 @@ jobs:
             throw "Frozen GUI startup test failed: exit code $($probe.ExitCode)"
           }
           Write-Host 'PASS: frozen application and HUD initialized with boss data'
+
+      - name: Verify bundled SteamVR libraries without starting SteamVR
+        shell: pwsh
+        run: |
+          $env:ECLIPTICA_VR_SELF_TEST_REPORT = Join-Path $env:RUNNER_TEMP 'ecliptica-vr-test-error.txt'
+          $exe = (Resolve-Path 'dist/EclipticaMusicCompanion/EclipticaMusicCompanion.exe').Path
+          $probe = Start-Process -FilePath $exe -ArgumentList '--vr-self-test' -Wait -PassThru
+          if ($probe.ExitCode -ne 0) {
+            if (Test-Path $env:ECLIPTICA_VR_SELF_TEST_REPORT) { Get-Content $env:ECLIPTICA_VR_SELF_TEST_REPORT }
+            throw "SteamVR bundle initialization failed: exit $($probe.ExitCode)"
+          }
+          Write-Host 'PASS: SteamVR library and HUD image are available; headset display is not tested'
 
       - name: Verify release contents and write SHA256 manifest
         run: python tools/verify_release.py dist/EclipticaMusicCompanion

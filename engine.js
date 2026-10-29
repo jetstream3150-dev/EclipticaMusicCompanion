@@ -1,13 +1,21 @@
 const aud = [new Audio(), new Audio()], yt = [null, null], ytReady = [false, false];
 let active = 0, seq = 0, unlocked = false, ready = false, pending = null;
 let last = -1, lastVolSeq = -1, master = 0.8, currentGain = [0, 0];
-let currentTask = null, fadeFrame = 0, youtubeWait = null;
+let currentTask = null, fadeFrame = 0, youtubeWait = null, youtubePlayWait = null;
 const statusEl = document.getElementById('status');
 
 function status(msg) {
   statusEl.textContent = msg;
   fetch('/player-status', {method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({status:msg})}).catch(() => {});
+}
+// Heartbeats distinguish an idle but connected player from a closed window.
+setInterval(() => {
+  fetch('/player-status', {method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({status:statusEl.textContent})}).catch(() => {});
+}, 3000);
+function checkResult(track, result, message) {
+  window.dispatchEvent(new CustomEvent('ecliptica-check', {detail:{track,result,message}}));
 }
 function setGain(i, gain) {
   currentGain[i] = Math.max(0, Math.min(1, gain));
@@ -29,6 +37,8 @@ function stop(i) {
 function clearYoutubeWait() {
   if (youtubeWait !== null) clearTimeout(youtubeWait);
   youtubeWait = null;
+  if (youtubePlayWait !== null) clearTimeout(youtubePlayWait);
+  youtubePlayWait = null;
 }
 function stopAll() {
   clearYoutubeWait(); pending = null; currentTask = null; seq++;
@@ -57,6 +67,13 @@ function onYouTubeIframeAPIReady() {
         onError:e => handleYoutubeError(i, e.data),
         onAutoplayBlocked:() => handleYoutubeError(i, 'autoplay'),
         onStateChange:e => {
+          if (e.data === 1 && currentTask && currentTask.slot === i) {
+            if (youtubePlayWait !== null) clearTimeout(youtubePlayWait);
+            youtubePlayWait = null;
+            currentTask.confirmed = true;
+            status('再生中: ' + currentTask.track);
+            checkResult(currentTask.track, 'playing', 'YouTubeプレーヤーで再生を確認しました。音量と出力先も確認してください。');
+          }
           if (e.data === YT.PlayerState.ENDED && currentTask && currentTask.slot === i && active === i && !pending) {
             try { yt[i].seekTo(0, true); yt[i].playVideo(); status('ループ再生中: ' + currentTask.track); }
             catch (err) { status('ループ再生に失敗: ' + err.message); }
@@ -68,7 +85,7 @@ function onYouTubeIframeAPIReady() {
 }
 function youtubeMessage(code) {
   if (code === 'autoplay') return 'ブラウザがYouTubeの自動再生を止めました';
-  if (code === 101 || code === 150) return 'YouTubeで再生できません（エラー' + code + '、埋め込み制限など）';
+  if (code === 101 || code === 150) return 'YouTubeで再生できません（エラー' + code + '、動画の埋め込みが許可されていません）';
   if (code === 100) return 'YouTube動画が見つからないか公開されていません（エラー100）';
   if (code === 153) return 'YouTubeがプレイヤーの識別情報を確認できません（エラー153）';
   return 'YouTube再生エラー ' + code;
@@ -76,6 +93,7 @@ function youtubeMessage(code) {
 function handleYoutubeError(i, code) {
   if (!currentTask || currentTask.slot !== i || !vid(currentTask.track)) return;
   const task = currentTask, message = youtubeMessage(code);
+  checkResult(task.track, code === 101 || code === 150 || code === 100 ? 'blocked' : 'unknown', message);
   if (task.fallback) {
     stop(i);
     requestPlay(task.fallback, task.fade, task.vol, '', message + '\n予備BGMに切り替えました');
@@ -98,6 +116,7 @@ async function runPending() {
     if (youtubeWait === null) youtubeWait = setTimeout(() => {
       youtubeWait = null;
       if (pending !== task) return;
+      checkResult(task.track, 'unknown', 'YouTubeの準備ができず、再生可否は未確認です。接続を確認してください。');
       if (task.fallback) requestPlay(task.fallback, task.fade, task.vol, '', 'YouTubeの準備ができませんでした\n予備BGMに切り替えました');
       else { pending = null; status('YouTubeの準備ができませんでした。接続を確認してください'); }
     }, 10000);
@@ -110,11 +129,20 @@ async function runPending() {
   if (id && previous && previous.slot === old && vid(previous.track)) stop(old);
   currentTask = {...task, slot:i};
   try {
-    if (id) { yt[i].loadVideoById(id); setGain(i, 0); }
+    if (id) {
+      yt[i].loadVideoById(id); setGain(i, 0);
+      youtubePlayWait = setTimeout(() => {
+        youtubePlayWait = null;
+        if (ticket === seq && currentTask && !currentTask.confirmed) {
+          status('YouTubeの再生を確認できませんでした。接続やプレーヤーを確認してください');
+          checkResult(task.track, 'unknown', 'YouTubeから再生結果が届かず、再生可否は未確認です。');
+        }
+      }, 15000);
+    }
     else {
       aud[i].src = '/media?path=' + encodeURIComponent(task.track);
       aud[i].loop = true;
-      aud[i].onerror = () => { if (ticket === seq) status('音楽ファイルを読み込めませんでした'); };
+      aud[i].onerror = () => { if (ticket === seq) {status('音楽ファイルを読み込めませんでした');checkResult(task.track, 'blocked', '音楽ファイルを読み込めませんでした。');} };
       await aud[i].play();
     }
   } catch (err) {
@@ -122,11 +150,14 @@ async function runPending() {
       if (err && err.name === 'NotAllowedError') {
         pending = task; unlocked = false; status('ブラウザが再生を止めました。「▶ 再生を有効化」を押してください');
       } else status('再生失敗: ' + (err && err.message || err));
+      checkResult(task.track, 'unknown', '再生を確認できません: ' + (err && err.message || err));
     }
     return;
   }
   if (ticket !== seq) return;
-  active = i; setMaster(task.vol); status(task.notice || '再生中: ' + task.track);
+  active = i; setMaster(task.vol);
+  status(task.notice || (id ? 'YouTubeの再生開始を確認中: ' : '再生中: ') + task.track);
+  if (!id) checkResult(task.track, 'playing', '音楽ファイルの再生を開始しました。音量と出力先も確認してください。');
   const initialOld = currentGain[old], start = performance.now(), duration = Math.max(0, task.fade) * 1000;
   function step(now) {
     if (ticket !== seq) return;
