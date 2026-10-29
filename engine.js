@@ -1,4 +1,5 @@
-const aud = [new Audio(), new Audio()], yt = [null, null], ytReady = [false, false];
+const aud = [new Audio(), new Audio()], slotKind = [null, null];
+let yt = null, ytReady = false;
 let active = 0, seq = 0, unlocked = false, ready = false, pending = null;
 let last = -1, lastVolSeq = -1, master = 0.8, currentGain = [0, 0];
 let currentTask = null, fadeFrame = 0, youtubeWait = null, youtubePlayWait = null;
@@ -21,8 +22,8 @@ function setGain(i, gain) {
   currentGain[i] = Math.max(0, Math.min(1, gain));
   const v = currentGain[i] * master;
   aud[i].volume = v;
-  if (yt[i] && typeof yt[i].setVolume === 'function') {
-    try { yt[i].setVolume(Math.round(v * 100)); } catch (_) {}
+  if (slotKind[i] === 'youtube' && yt && typeof yt.setVolume === 'function') {
+    try { yt.setVolume(Math.round(v * 100)); } catch (_) {}
   }
 }
 function setMaster(v) {
@@ -31,8 +32,9 @@ function setMaster(v) {
 }
 function stop(i) {
   aud[i].pause(); aud[i].removeAttribute('src'); aud[i].load();
-  if (yt[i] && yt[i].stopVideo) try { yt[i].stopVideo(); } catch (_) {}
+  if (slotKind[i] === 'youtube' && yt && yt.stopVideo) try { yt.stopVideo(); } catch (_) {}
   setGain(i, 0);
+  slotKind[i] = null;
 }
 function clearYoutubeWait() {
   if (youtubeWait !== null) clearTimeout(youtubeWait);
@@ -59,28 +61,26 @@ function vid(url) {
 }
 function onYouTubeIframeAPIReady() {
   ready = true;
-  for (let i = 0; i < 2; i++) {
-    yt[i] = new YT.Player('yt' + i, {height:'200', width:'220', videoId:'',
+    yt = new YT.Player('yt0', {height:'200', width:'220', videoId:'',
       playerVars:{playsinline:1, controls:1, origin:location.origin},
       events:{
-        onReady:() => { ytReady[i] = true; if (pending && unlocked) runPending(); },
-        onError:e => handleYoutubeError(i, e.data),
-        onAutoplayBlocked:() => handleYoutubeError(i, 'autoplay'),
+        onReady:() => { ytReady = true; if (pending && unlocked) runPending(); },
+        onError:e => handleYoutubeError(e.data),
+        onAutoplayBlocked:() => handleYoutubeError('autoplay'),
         onStateChange:e => {
-          if (e.data === 1 && currentTask && currentTask.slot === i) {
+          if (e.data === 1 && currentTask && slotKind[currentTask.slot] === 'youtube') {
             if (youtubePlayWait !== null) clearTimeout(youtubePlayWait);
             youtubePlayWait = null;
             currentTask.confirmed = true;
             status('再生中: ' + currentTask.track);
             checkResult(currentTask.track, 'playing', 'YouTubeプレーヤーで再生を確認しました。音量と出力先も確認してください。');
           }
-          if (e.data === YT.PlayerState.ENDED && currentTask && currentTask.slot === i && active === i && !pending) {
-            try { yt[i].seekTo(0, true); yt[i].playVideo(); status('ループ再生中: ' + currentTask.track); }
+          if (e.data === YT.PlayerState.ENDED && currentTask && slotKind[currentTask.slot] === 'youtube' && active === currentTask.slot && !pending) {
+            try { yt.seekTo(0, true); yt.playVideo(); status('ループ再生中: ' + currentTask.track); }
             catch (err) { status('ループ再生に失敗: ' + err.message); }
           }
         }
       }});
-  }
   status('YouTubeプレイヤーを準備しています');
 }
 function youtubeMessage(code) {
@@ -90,9 +90,9 @@ function youtubeMessage(code) {
   if (code === 153) return 'YouTubeがプレイヤーの識別情報を確認できません（エラー153）';
   return 'YouTube再生エラー ' + code;
 }
-function handleYoutubeError(i, code) {
-  if (!currentTask || currentTask.slot !== i || !vid(currentTask.track)) return;
-  const task = currentTask, message = youtubeMessage(code);
+function handleYoutubeError(code) {
+  if (!currentTask || slotKind[currentTask.slot] !== 'youtube' || !vid(currentTask.track)) return;
+  const task = currentTask, i = task.slot, message = youtubeMessage(code);
   checkResult(task.track, code === 101 || code === 150 || code === 100 ? 'blocked' : 'unknown', message);
   if (task.fallback) {
     stop(i);
@@ -111,7 +111,7 @@ async function runPending() {
   if (!pending) return;
   if (!unlocked) { status('再生待ち: 「▶ 再生を有効化」を押してください'); return; }
   const task = pending, id = vid(task.track), i = 1 - active, old = active;
-  if (id && (!ready || !ytReady[i] || !yt[i] || typeof yt[i].loadVideoById !== 'function')) {
+  if (id && (!ready || !ytReady || !yt || typeof yt.loadVideoById !== 'function')) {
     status('YouTubeプレイヤーを準備中です');
     if (youtubeWait === null) youtubeWait = setTimeout(() => {
       youtubeWait = null;
@@ -127,10 +127,10 @@ async function runPending() {
   cancelAnimationFrame(fadeFrame); stop(i);
   // Do not automatically play two embedded YouTube videos at the same time.
   if (id && previous && previous.slot === old && vid(previous.track)) stop(old);
-  currentTask = {...task, slot:i};
+  currentTask = {...task, slot:i}; slotKind[i] = id ? 'youtube' : 'audio';
   try {
     if (id) {
-      yt[i].loadVideoById(id); setGain(i, 0);
+      setGain(i, 0); yt.loadVideoById(id);
       youtubePlayWait = setTimeout(() => {
         youtubePlayWait = null;
         if (ticket === seq && currentTask && !currentTask.confirmed) {

@@ -78,19 +78,21 @@ def main():
                 assert status == 200 and response['ok'], response
                 print('PASS: missing VRChat logs return a visible error without blocking the GUI queue', flush=True)
 
+                battle = str(music.BASE / 'demo_audio' / 'battle.wav')
+                calm = str(music.BASE / 'demo_audio' / 'calm.wav')
                 status, response = request('/api/action', {'action':'set_music_all','phase':'戦闘',
-                                                           'track':'demo://battle','fallback':''})
+                                                           'track':battle,'fallback':''})
                 assert status == 200 and response['ok'], response
                 saved=json.loads(config.read_text(encoding='utf-8'))
                 for difficulty in app.DIFFICULTIES:
-                    assert saved['music'][difficulty+'|戦闘']=='demo://battle', saved['music']
-                status, response = request('/api/action', {'action':'play','track':'demo://battle','fallback':''})
+                    assert saved['music'][difficulty+'|戦闘']==battle, saved['music']
+                status, response = request('/api/action', {'action':'play','track':battle,'fallback':''})
                 assert status == 200 and response['ok'], response
                 status, state = request('/state')
                 assert status == 200 and state['track'].replace('\\','/').endswith('/demo_audio/battle.wav'), state
-                print('PASS: actual GUI saves the built-in preset for every difficulty and resolves its bundled path', flush=True)
+                print('PASS: actual GUI saves and plays a user-selected audio file for every difficulty', flush=True)
 
-                for difficulty, track in [('Primal','demo://calm'),('Eclipse','demo://battle')]:
+                for difficulty, track in [('Primal',calm),('Eclipse',battle)]:
                     status, response = request('/api/action', {'action':'set_music','difficulty':difficulty,'phase':'戦闘','track':track,'fallback':''})
                     assert status == 200 and response['ok'], response
                 log = log_dir / 'output_log_2026-10-29_00-00-00.txt'

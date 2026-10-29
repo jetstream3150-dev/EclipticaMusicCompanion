@@ -98,10 +98,16 @@ def test_app():
  a.update_hud_loop();root.update()
  assert a.extra_widgets['damage'].state()=='normal' and '120' in a.extra_widgets['damage'].value.cget('text')
  assert a.extra_widgets['target'].state()=='normal' and '狙われています' in a.extra_widgets['target'].value.cget('text')
+ assert a.extra_widgets['damage'].winfo_viewable() and a.extra_widgets['target'].winfo_viewable()
+ assert bool(a.extra_widgets['damage'].attributes('-topmost')) and bool(a.extra_widgets['target'].attributes('-topmost'))
  assert a.hud.state()=='withdrawn'
  damage=a.extra_widgets['damage'];damage.drag_start(SimpleNamespace(x_root=damage.winfo_x()+5,y_root=damage.winfo_y()+5))
  damage.drag(SimpleNamespace(x_root=305,y_root=245));root.update();damage.drag_end(None)
  assert a.api_config()['overlay']['widget_positions']['damage']==[300,240]
+ a.hide_metric_widget('target');root.update()
+ assert a.extra_widgets['target'].state()=='withdrawn' and damage.state()=='normal'
+ assert a.api_view()['damage_overlay_enabled'] and not a.api_view()['target_overlay_enabled']
+ assert not a.api_config()['overlay']['show_target']
  a.close();print('Tk integration checks PASS')
 
 if __name__=='__main__':

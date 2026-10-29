@@ -94,6 +94,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check engine.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tools/test_player_engine.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check party.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tools/test_party_client.js
@@ -113,7 +115,6 @@ jobs:
             '--collect-all', 'openvr',
             '--add-data', 'player.html;.', '--add-data', 'unified.html;.',
             '--add-data', 'engine.js;.',
-            '--add-data', 'demo_audio;demo_audio',
             '--add-data', 'party.js;.',
             '--add-data', 'boss_weakness_data.txt;.',
             '--add-data', 'LICENSE_EclipticaHUD-C.txt;.'
@@ -305,7 +306,6 @@ jobs:
                                'boss_weakness_data.txt', 'LICENSE_EclipticaHUD-C.txt')) {
             $pyiArgs += @('--add-data', ((Resolve-Path -LiteralPath $asset).Path + ';.'))
           }
-          $pyiArgs += @('--add-data', ((Resolve-Path -LiteralPath 'demo_audio').Path + ';demo_audio'))
           $tclDir = (& python -c "import tkinter as tk; print(tk.Tcl().eval('info library'))").Trim()
           if (-not $tclDir.StartsWith('//zipfs:/')) {
             $tkVersion = (& python -c "import tkinter as tk; print(tk.TkVersion)").Trim()
@@ -342,7 +342,7 @@ jobs:
           }
           Write-Host 'PASS: standalone EXE, Tcl/Tk and GUI/HUD startup'
 
-      - name: Check YouTube sample playback in Edge
+      - name: Check YouTube control playback in Edge
         shell: pwsh
         timeout-minutes: 4
         run: |

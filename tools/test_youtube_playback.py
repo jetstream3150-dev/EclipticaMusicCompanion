@@ -17,15 +17,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from EclipticaMusic import SAMPLE_PHASE_TRACKS
-
 
 # The example video is the one used in YouTube's IFrame API documentation.
 # A failing control prevents runner-wide failures from being misdiagnosed as
 # individual sample videos refusing embedding.
 CONTROL = 'https://www.youtube.com/watch?v=M7lc1UVf-VE'
-TRACKS = [CONTROL] + [url for url in dict.fromkeys(SAMPLE_PHASE_TRACKS.values())
-                      if url != CONTROL]
+TRACKS = [CONTROL]
 STATE = {'seq': 0, 'track': '', 'fade': 0, 'volume': .8,
          'stop': False, 'fallback': '', 'volume_seq': 0}
 MESSAGES = []
@@ -33,7 +30,7 @@ ENGINE = Path('engine.js').read_bytes()
 HTML = b'''<!doctype html><html><head><meta charset="utf-8"><style>
 #players{display:flex;gap:8px;min-height:200px}
 </style></head><body><button id="unlock" onclick="unlock()">Unlock</button>
-<p id="status"></p><div id="players"><div id="yt0"></div><div id="yt1"></div></div>
+<p id="status"></p><div id="players"><div id="yt0"></div></div>
 <script src="/engine.js"></script><script src="https://www.youtube.com/iframe_api"></script>
 </body></html>'''
 
@@ -117,7 +114,7 @@ def main():
                  {'url': 'http://127.0.0.1:' + str(server.server_port) + '/'})
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline:
-                if js("return typeof ready!=='undefined' && ready && ytReady.every(Boolean) && yt.every(p=>p && typeof p.getPlayerState==='function');"):
+                if js("return typeof ready!=='undefined' && ready && ytReady && yt && typeof yt.getPlayerState==='function';"):
                     break
                 time.sleep(.5)
             else:
@@ -143,11 +140,11 @@ def main():
                     if explicit:
                         if url == CONTROL:
                             print('UNVERIFIED: Official YouTube control failed in this runner; '
-                                  'sample playback has not been verified:',
+                                  'YouTube playback has not been verified:',
                                   explicit.encode('unicode_escape').decode(), flush=True)
                             return
                         raise RuntimeError('YouTube player error for ' + url + ': ' + explicit)
-                    state = js("return {state:yt[active]?.getPlayerState?.(),time:yt[active]?.getCurrentTime?.()};")
+                    state = js("return {state:yt?.getPlayerState?.(),time:yt?.getCurrentTime?.()};")
                     if state and state.get('state') == 1 and state.get('time', 0) > 0.2:
                         print('PASS: YouTube IFrame playback progressed for', url, flush=True)
                         break
