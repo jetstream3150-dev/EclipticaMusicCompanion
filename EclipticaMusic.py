@@ -19,32 +19,6 @@ CFG=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'EclipticaMusicCompani
 CFG.parent.mkdir(parents=True,exist_ok=True)
 LOG=Path(os.environ.get('USERPROFILE',str(Path.home())))/'AppData/LocalLow/VRChat/VRChat'
 DEFAULT={'round':{},'waiting':{},'phase':{},'boss':{},'music':{},'fade':2.0,'volume':80,'log':'','auto':False,'fallback':{},'lobby':'','overlay':{'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'volume':65,'seconds':10,'opacity':92},'discovered_bosses':[]}
-# NCS official YouTube videos, used only as replaceable starter tracks.
-SAMPLE_PHASE_TRACKS={
- '戦闘':'https://www.youtube.com/watch?v=yJg-Y5byMMw',
- '準備':'https://www.youtube.com/watch?v=TW9d8vYrVFQ',
- 'ボス':'https://www.youtube.com/watch?v=J2X5mJ3HDYE',
- '終了':'https://www.youtube.com/watch?v=3nQNiWdeH2Q',
- '休憩':'https://www.youtube.com/watch?v=TW9d8vYrVFQ',
-}
-# These are original, bundled demo loops, not downloads of YouTube videos.
-SAMPLE_FALLBACK_FILES={
- SAMPLE_PHASE_TRACKS['戦闘']:'battle.wav',
- SAMPLE_PHASE_TRACKS['ボス']:'boss.wav',
- SAMPLE_PHASE_TRACKS['準備']:'calm.wav',
- SAMPLE_PHASE_TRACKS['終了']:'calm.wav',
-}
-DEMO_TRACKS={'demo://battle':'battle.wav','demo://boss':'boss.wav','demo://calm':'calm.wav'}
-def resolve_demo_track(track):
- name=DEMO_TRACKS.get(track)
- return str(BASE/'demo_audio'/name) if name else track
-
-def sample_fallback(track):
- name=SAMPLE_FALLBACK_FILES.get(track)
- if not name:return ''
- path=BASE/'demo_audio'/name
- return str(path) if path.is_file() else ''
-
 def youtube_id(track):
  """Accept supported YouTube video URLs only; do not accept malformed IDs."""
  try:
@@ -87,16 +61,6 @@ def read_resume_snapshot(path,meter):
    elif re.search(r'ECLIPTICA - now (?:in stage|fighting boss):',line):event=None;detected=None
  return offset,event,detected
 
-def add_sample_music_once(cfg,difficulties):
- # Fill missing slots on first upgrade without changing any existing selection.
- # The marker lets a user clear a sample permanently after it has been added.
- if cfg.get('sample_music_initialized') is True:return cfg
- for difficulty in difficulties:
-  for phase,track in SAMPLE_PHASE_TRACKS.items():
-   cfg['music'].setdefault(difficulty+'|'+phase,track)
- if not cfg.get('lobby'):cfg['lobby']=SAMPLE_PHASE_TRACKS['休憩']
- cfg['sample_music_initialized']=True
- return cfg
 state={'seq':0,'track':'','fade':2,'volume':.8,'stop':False,'player_status':'プレイヤー未接続','player_seen':0,'volume_seq':0,'fallback':''}
 lock=threading.Lock()
 allowed_media=set()
@@ -326,10 +290,14 @@ class MetricWidget(tk.Toplevel):
   super().__init__(app.root)
   self.app=app;self.kind=kind;self.start_drag=None
   self.overrideredirect(True);self.attributes('-topmost',True);self.configure(bg='#0d1721')
-  self.geometry('300x86%+d%+d'%tuple(position))
+  self.geometry(('300x108' if kind=='damage' else '300x86')+'%+d%+d'%tuple(position))
   frame=tk.Frame(self,bg='#0d1721',padx=10,pady=8,highlightbackground='#164e55',highlightthickness=1);frame.pack(fill='both',expand=True)
-  header=tk.Label(frame,text='☰  '+self.TITLES[kind]+'  • ドラッグ移動',font=('Segoe UI',9,'bold'),bg='#0d1721',fg='#67eee1',anchor='w',cursor='hand2');header.pack(fill='x')
-  header.bind('<ButtonPress-1>',self.drag_start);header.bind('<B1-Motion>',self.drag);header.bind('<ButtonRelease-1>',self.drag_end)
+  row=tk.Frame(frame,bg='#0d1721');row.pack(fill='x')
+  header=tk.Label(row,text='☰  '+self.TITLES[kind]+'  • ドラッグ移動',font=('Segoe UI',9,'bold'),bg='#0d1721',fg='#67eee1',anchor='w',cursor='hand2');header.pack(side='left',fill='x',expand=True)
+  if kind in ('damage','target'):
+   close=tk.Label(row,text='✕',font=('Segoe UI',10,'bold'),bg='#0d1721',fg='#9bb0ba',cursor='hand2');close.pack(side='right');close.bind('<Button-1>',lambda e:self.app.hide_metric_widget(self.kind))
+  for widget in (row,header):
+   widget.bind('<ButtonPress-1>',self.drag_start);widget.bind('<B1-Motion>',self.drag);widget.bind('<ButtonRelease-1>',self.drag_end)
   self.value=tk.Label(frame,text='',font=('Segoe UI',9),bg='#0d1721',fg='#edf7f8',anchor='w',justify='left',wraplength=278);self.value.pack(fill='both',expand=True)
  def drag_start(self,event):self.start_drag=(event.x_root-self.winfo_x(),event.y_root-self.winfo_y())
  def drag(self,event):
@@ -368,10 +336,12 @@ class App:
   self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value=self.cfg.get('active_difficulty') if self.cfg.get('difficulty_mode')=='manual' and self.cfg.get('active_difficulty') in self.DIFFICULTIES else '自動判定');self.detected_event=None;self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.watch_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.party_hud=None;self.party_rows=[];self.extra_widgets={};self.identity_status='自動取得の確認待ち';self.identity_log='';self.results=BattleResults(CFG.parent/'battle_results.json');self.vr_hud=SteamVRHUD();self.build();self.root.after(50,self.drain_watch_events);self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
   if self.overlay_cfg['vr_show']:self.vr_hud.enable(True,self.overlay_cfg['vr_split'])
  def _overlay_options(self):
-  defaults={'show':False,'vr_show':False,'vr_split':False,'show_damage':False,'show_target':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'show_party':True,'separate_widgets':False,'widget_positions':{},'sound_path':'','volume':65,'seconds':10,'opacity':92}
+  defaults={'show':False,'vr_show':False,'vr_split':False,'show_damage':True,'show_target':True,'split_defaults_applied':True,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'show_party':True,'separate_widgets':False,'widget_positions':{},'sound_path':'','volume':65,'seconds':10,'opacity':92}
   saved=self.cfg.get('overlay',{})
   if isinstance(saved,dict):
    defaults.update({k:v for k,v in saved.items() if k in defaults})
+   if saved.get('split_defaults_applied') is not True:
+    defaults.update(show_damage=True,show_target=True,split_defaults_applied=True)
    # An existing user's manually entered name must remain a manual override.
    if 'auto_name' not in saved and str(saved.get('name','')).strip():
     defaults['auto_name']=False
@@ -412,6 +382,9 @@ class App:
   self.toggle_hud(False);self.save(quiet=True);self.revision+=1
  def hide_party_hud_from_window(self):
   self.overlay_cfg['show_party']=False;self.refresh_party_hud();self.save(quiet=True);self.revision+=1
+ def hide_metric_widget(self,kind):
+  if kind not in ('damage','target'):return
+  self.overlay_cfg['show_'+kind]=False;self.refresh_metric_widgets(self.meter.snapshot());self.save(quiet=True);self.revision+=1
  def refresh_party_hud(self):
   visible=bool(self.overlay_cfg.get('show') and self.overlay_cfg.get('show_party',True) and self.party_rows)
   if visible:
@@ -427,7 +400,7 @@ class App:
    'weakness':(enabled and self.overlay_cfg.get('show_weakness',True) and v.get('mode')=='boss',weak),
    'tokens':(enabled and v.get('mode')=='stage','取得 %d / 出現 %d'%(v.get('tokens_collected',0),v.get('tokens_spawned',0))),
    'dummy':(enabled and v.get('mode')=='break' and v.get('dummy_hits',0)>0,'DPS %.1f / 合計 %.0f'%(v.get('dummy_dps',0),v.get('dummy_damage',0))),
-   'damage':(self.overlay_cfg.get('show_damage',False),'DPS %.1f  /  ボス %.0f  /  合計 %.0f'%(v.get('dps',0),v.get('boss_damage',0),v.get('total_damage',0))),
+   'damage':(self.overlay_cfg.get('show_damage',False),'BOSS: '+str(v.get('boss','待機中'))[:26]+'\nDPS %.1f  /  ボス %.0f  /  合計 %.0f'%(v.get('dps',0),v.get('boss_damage',0),v.get('total_damage',0))),
    'target':(self.overlay_cfg.get('show_target',False),'あなたが狙われています！' if v.get('is_targeted') else 'ターゲット: '+str(v.get('target','未検出'))[:36])}
   positions=self.overlay_cfg['widget_positions']
   for index,(kind,(visible,value)) in enumerate(values.items()):
@@ -697,17 +670,17 @@ class App:
  DIFFICULTIES=('Primal','Penumbra','Antumbra','Umbra','Eclipse','Eye of the Eclipse')
  PHASES=('戦闘','準備','ボス','終了','休憩')
  def load_config(self):
-  if not CFG.exists():return add_sample_music_once(json.loads(json.dumps(DEFAULT)),self.DIFFICULTIES)
+  if not CFG.exists():return json.loads(json.dumps(DEFAULT))
   try:
    obj=json.loads(CFG.read_text('utf-8'))
    if not isinstance(obj,dict):raise ValueError('設定の形式が正しくありません')
    cfg=json.loads(json.dumps(DEFAULT));cfg.update(obj)
    if not isinstance(cfg.get('music'),dict) or not isinstance(cfg.get('boss'),dict) or not isinstance(cfg.get('fallback'),dict):raise ValueError('曲設定が正しくありません')
-   return add_sample_music_once(cfg,self.DIFFICULTIES)
+   return cfg
   except Exception:
    try:CFG.rename(CFG.with_name('settings_broken_'+datetime.now().strftime('%Y%m%d_%H%M%S')+'.json'))
    except OSError:pass
-   return add_sample_music_once(json.loads(json.dumps(DEFAULT)),self.DIFFICULTIES)
+   return json.loads(json.dumps(DEFAULT))
  def export_config(self):
   if not self.save():return
   target=filedialog.asksaveasfilename(title='設定をバックアップ',defaultextension='.json',initialfile='EclipticaMusicCompanion_backup.json',filetypes=[('JSON','*.json')])
@@ -857,14 +830,13 @@ class App:
  def play(self,track,fallback=''):
   track=track.strip()
   if not track:self.status.set('曲を設定してください');return False
-  track=resolve_demo_track(track)
-  fallback=resolve_demo_track(fallback.strip())
+  if track.startswith('demo://'):
+   self.stop_music();self.status.set('以前の内蔵試用曲は終了しました。別の曲を設定してください');return False
+  fallback=fallback.strip()
+  if fallback.startswith('demo://'):fallback=''
   is_youtube=bool(youtube_id(track))
   if not is_youtube and not Path(track).is_file():
    self.stop_music();self.status.set('有効なYouTube動画のURLか存在する音楽ファイルを設定してください');return False
-  # Preserve explicit user fallbacks; use a bundled original loop only for the
-  # preset videos if the user hasn't specified one.
-  if is_youtube and not fallback:fallback=sample_fallback(track)
   if Path(track).is_file():
    with lock:allowed_media.add(str(Path(track).resolve()))
   if fallback and Path(fallback).is_file() and Path(fallback).suffix.lower() in ('.mp3','.wav','.ogg','.m4a'):
@@ -1094,7 +1066,7 @@ class App:
   with lock:player_connected=bool(state.get('player_seen') and time.time()-state['player_seen']<5)
   return {'status':self.status.get(),'event':self.event_status.get(),
     'player':self.player_status.get(),'monitoring':bool(self.worker and self.worker.is_alive() and not self.stop.is_set()),
-    'revision':self.revision,'volume':self.volume.get(),'detected_difficulty':(self.detected_event or {}).get('difficulty',''),'detected_progress':(self.detected_event or {}).get('progress'),'combat':combat,'weakness':lookup_weakness(combat['boss'],str(BASE/'boss_weakness_data.txt')),'overlay_visible':bool(self.overlay_cfg['show']),'party_overlay_enabled':bool(self.overlay_cfg.get('show_party',True)),'identity_status':self.identity_status,'vr_status':self.vr_hud.status(),'results':self.results.latest(),'diagnostics':{'player_connected':player_connected,'log_exists':bool(self.log.get().strip() and Path(self.log.get()).is_file())}}
+    'revision':self.revision,'volume':self.volume.get(),'detected_difficulty':(self.detected_event or {}).get('difficulty',''),'detected_progress':(self.detected_event or {}).get('progress'),'combat':combat,'weakness':lookup_weakness(combat['boss'],str(BASE/'boss_weakness_data.txt')),'overlay_visible':bool(self.overlay_cfg['show']),'damage_overlay_enabled':bool(self.overlay_cfg.get('show_damage')),'target_overlay_enabled':bool(self.overlay_cfg.get('show_target')),'party_overlay_enabled':bool(self.overlay_cfg.get('show_party',True)),'identity_status':self.identity_status,'vr_status':self.vr_hud.status(),'results':self.results.latest(),'diagnostics':{'player_connected':player_connected,'log_exists':bool(self.log.get().strip() and Path(self.log.get()).is_file())}}
  def api_action(self,d):
   action=d.get('action','')
   if not isinstance(action,str):raise ValueError('不正な操作です')
@@ -1346,8 +1318,6 @@ if __name__=='__main__':
   try:
    root=tk.Tk();root.withdraw()
    app=App(root,0)
-   for track in SAMPLE_FALLBACK_FILES:
-    if not sample_fallback(track):raise FileNotFoundError('Bundled demo audio is missing')
    app.meter.ingest('ECLIPTICA - now fighting boss: YukiPhase2(Clone) on phase: 0')
    app.toggle_hud(True);app.update_hud_loop();root.update()
    if app.api_view()['weakness']['name']!='Yuki(P2)' or '弱火' not in app.hud.weak_lbl.cget('text'):

@@ -20,12 +20,13 @@ import EclipticaMusic as music
 
 
 ROOT = Path(__file__).resolve().parent.parent
-FAKE_YOUTUBE = b'''window.__testYoutubeLoads=[];
+FAKE_YOUTUBE = b'''window.__testYoutubeLoads=[];window.__testYoutubePlayers=[];window.__testYoutubeEvents=[];
 window.YT={PlayerState:{ENDED:0},Player:function(id,opts){
-  this.stopVideo=function(){};this.setVolume=function(){};this.seekTo=function(){};
+  window.__testYoutubePlayers.push(id);
+  this.stopVideo=function(){window.__testYoutubeEvents.push('stop');};this.setVolume=function(){};this.seekTo=function(){};
   this.playVideo=function(){};this.getPlayerState=function(){return -1;};
-  this.loadVideoById=function(video){window.__testYoutubeLoads.push(video);
-    setTimeout(function(){if(video==='Allowed1234')opts.events.onStateChange({data:1});
+  this.loadVideoById=function(video){window.__testYoutubeLoads.push(video);window.__testYoutubeEvents.push('load:'+video);
+    setTimeout(function(){if(video==='Allowed1234'||video==='Allowed5678')opts.events.onStateChange({data:1});
       else if(video==='Autoplay123')opts.events.onAutoplayBlocked({});
       else opts.events.onError({data:150});},100);};
   var self=this;setTimeout(function(){opts.events.onReady({target:self});},0);
@@ -49,7 +50,7 @@ class FakeApp:
         self.player.status = Value('')
 
     def api_config(self):
-        return {'music': {'Primal|戦闘': music.SAMPLE_PHASE_TRACKS['戦闘']},
+        return {'music': {'Primal|戦闘': 'https://www.youtube.com/watch?v=AAAAAAAAAAA'},
                 'fallback': {}, 'boss': {}, 'overlay': {}, 'identity_status': '',
                 'lobby': '', 'log': '', 'fade': .1, 'volume': 80,
                 'difficulties': ['Primal'], 'phases': ['戦闘', 'ボス'],
@@ -66,7 +67,7 @@ class FakeApp:
 
     def api_action(self, data):
         if data.get('action') == 'play_selected':
-            self.player.play(music.SAMPLE_PHASE_TRACKS['戦闘'])
+            self.player.play('https://www.youtube.com/watch?v=AAAAAAAAAAA', str(ROOT / 'demo_audio' / 'battle.wav'))
             return self.player.status.get()
         if data.get('action') == 'play':
             if self.player.play(data.get('track',''),data.get('fallback','')) is False:
@@ -160,8 +161,10 @@ def main():
             session = result['sessionId']
             call('POST', '/session/' + session + '/url',
                  {'url':'http://127.0.0.1:' + str(server.server_port) + '/ui'})
-            wait_for(lambda: js("return typeof model!=='undefined' && !!model && ytReady.every(Boolean);"),
+            wait_for(lambda: js("return typeof model!=='undefined' && !!model && ytReady;"),
                      'UI and test player initialization')
+            assert js("return JSON.stringify(window.__testYoutubePlayers)==='[\"yt0\"]' && document.querySelectorAll('#players > *').length===1;"), 'The UI must create one YouTube player'
+            print('PASS: the UI creates exactly one YouTube player', flush=True)
             # Let the initial player and UI polls finish. The old duplicate
             # global poll name caused all later player updates to disappear.
             time.sleep(2)
@@ -178,7 +181,7 @@ def main():
             time.sleep(6)
             call('POST', '/session/' + session + '/window/minimize', {})
             wait_for(lambda: js('return document.hidden;'), 'minimized browser state')
-            music.UI_APP.player.play(music.SAMPLE_PHASE_TRACKS['ボス'])
+            music.UI_APP.player.play('https://www.youtube.com/watch?v=BBBBBBBBBBB', str(ROOT / 'demo_audio' / 'boss.wav'))
             boss = wait_for(lambda: playing('boss.wav'), 'automatic boss music switch')
             assert boss['loads'] == 2 and 'エラー150' in boss['status'], boss
             print('PASS: automatic scene change starts the boss fallback while minimized', flush=True)
@@ -228,10 +231,16 @@ def main():
             assert '再生を確認' in allowed, allowed
             print('PASS: successful mocked YouTube player event produces a confirmed result', flush=True)
 
-            js("document.querySelector('[data-preset=music]').click();document.getElementById('music-preview').click();return true;")
-            preset=wait_for(lambda: playing('battle.wav'), 'built-in preset playback')
-            wait_for(lambda: js("return document.getElementById('music-check').textContent.includes('再生を確認:');"), 'built-in preset result')
-            print('PASS: bundled preset plays through the actual HTML audio element', flush=True)
+            js("let e=document.getElementById('music-track');e.value=" + json.dumps(str(ROOT / 'demo_audio' / 'battle.wav')) + ";e.dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('music-preview').click();return true;")
+            wait_for(lambda: playing('battle.wav'), 'local file playback')
+            wait_for(lambda: js("return document.getElementById('music-check').textContent.includes('再生を確認:');"), 'local file result')
+            print('PASS: user-selected local audio plays through the actual HTML audio element', flush=True)
+            music.UI_APP.player.play('https://www.youtube.com/watch?v=Allowed1234')
+            wait_for(lambda: js("return window.__testYoutubeLoads.at(-1)==='Allowed1234' && currentTask?.confirmed;"), 'first YouTube video')
+            music.UI_APP.player.play('https://www.youtube.com/watch?v=Allowed5678')
+            wait_for(lambda: js("return window.__testYoutubeLoads.at(-1)==='Allowed5678' && currentTask?.confirmed;"), 'second YouTube video')
+            assert js("let a=window.__testYoutubeEvents;let n=a.lastIndexOf('load:Allowed5678');return n>0 && a[n-1]==='stop' && window.__testYoutubePlayers.length===1;"), 'YouTube switch did not stop the old video first'
+            print('PASS: two successive YouTube tracks use one player and stop the old track first', flush=True)
             js("selectPanel('home');document.getElementById('diagnose').click();return true;")
             diagnosis=wait_for(lambda: js("let t=document.getElementById('diagnosis').textContent;return t.includes('VRChatログ')?t:null;"), 'one-click diagnostic')
             assert '出力' in diagnosis and '未確認' in diagnosis, diagnosis

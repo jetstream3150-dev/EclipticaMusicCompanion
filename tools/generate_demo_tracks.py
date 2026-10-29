@@ -1,4 +1,4 @@
-"""Create original instrumental demo loops for the packaged application.
+"""Create audio fixtures for browser and GUI tests; these are not packaged.
 
 No third-party recordings are downloaded or included. The two synth voices,
 drums and note patterns below are generated locally using the standard library.

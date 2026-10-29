@@ -52,11 +52,16 @@ class FeatureTests(unittest.TestCase):
                 with self.assertRaises(PermissionError):store.append({'boss': 'D'})
             self.assertEqual([r['boss'] for r in BattleResults(path, 2).latest()], ['C', 'B'])
 
-    def test_internal_preset_survives_install_directory_change(self):
-        with tempfile.TemporaryDirectory() as temp:
-            with patch.object(music, 'BASE', Path(temp)):
-                self.assertEqual(music.resolve_demo_track('demo://battle'), str(Path(temp)/'demo_audio'/'battle.wav'))
-                self.assertEqual(music.resolve_demo_track('demo://other'), 'demo://other')
+    def test_split_overlay_defaults_migrate_once_and_keep_other_settings(self):
+        app = music.App.__new__(music.App)
+        app.cfg = {'overlay': {'show_damage': False, 'show_target': False, 'name': 'MyPlayer', 'auto_name': False}}
+        options = app._overlay_options()
+        self.assertTrue(options['show_damage'] and options['show_target'])
+        self.assertTrue(options['split_defaults_applied'])
+        self.assertEqual(options['name'], 'MyPlayer')
+        self.assertFalse(options['auto_name'])
+        app.cfg['overlay'] = dict(options, show_damage=False)
+        self.assertFalse(app._overlay_options()['show_damage'])
 
     def test_bulk_settings_rollback_if_save_fails(self):
         values={(group,d+'|戦闘'):Value('old-'+d+'-'+group)
@@ -65,11 +70,11 @@ class FeatureTests(unittest.TestCase):
                             save=lambda quiet=True:False,status=Value('write failed'),revision=0)
         before={k:v.get() for k,v in values.items()}
         with self.assertRaises(RuntimeError):
-            music.App.api_action(app,{'action':'set_music_all','phase':'戦闘','track':'demo://battle','fallback':''})
+            music.App.api_action(app,{'action':'set_music_all','phase':'戦闘','track':'C:/music/battle.wav','fallback':''})
         self.assertEqual({k:v.get() for k,v in values.items()},before)
         app.save=lambda quiet=True:True
-        music.App.api_action(app,{'action':'set_music_all','phase':'戦闘','track':'demo://battle','fallback':''})
-        self.assertEqual([values[('music',d+'|戦闘')].get() for d in ('A','B')], ['demo://battle']*2)
+        music.App.api_action(app,{'action':'set_music_all','phase':'戦闘','track':'C:/music/battle.wav','fallback':''})
+        self.assertEqual([values[('music',d+'|戦闘')].get() for d in ('A','B')], ['C:/music/battle.wav']*2)
 
 
 if __name__ == '__main__':

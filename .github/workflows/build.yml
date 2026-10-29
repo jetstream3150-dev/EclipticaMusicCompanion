@@ -94,6 +94,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check engine.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tools/test_player_engine.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check party.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tools/test_party_client.js
@@ -113,7 +115,6 @@ jobs:
             '--collect-all', 'openvr',
             '--add-data', 'player.html;.', '--add-data', 'unified.html;.',
             '--add-data', 'engine.js;.',
-            '--add-data', 'demo_audio;demo_audio',
             '--add-data', 'party.js;.',
             '--add-data', 'boss_weakness_data.txt;.',
             '--add-data', 'LICENSE_EclipticaHUD-C.txt;.'
