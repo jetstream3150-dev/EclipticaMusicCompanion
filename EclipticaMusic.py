@@ -317,7 +317,7 @@ class BattleHUD(tk.Toplevel):
 
 class MetricWidget(tk.Toplevel):
  """Independently movable desktop widget; the header acts as a drag handle."""
- TITLES={'weakness':'ボスの弱点・耐性','tokens':'トークン（推定）','dummy':'練習ダミー（推定）'}
+ TITLES={'weakness':'ボスの弱点・耐性','tokens':'トークン（推定）','dummy':'練習ダミー（推定）','damage':'ダメージ（推定）','target':'ターゲット（推定）'}
  def __init__(self,app,kind,position):
   super().__init__(app.root)
   self.app=app;self.kind=kind;self.start_drag=None
@@ -361,10 +361,10 @@ class PartyHUD(tk.Toplevel):
 
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.watch_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.party_hud=None;self.party_rows=[];self.extra_widgets={};self.identity_status='自動取得の確認待ち';self.identity_log='';self.results=BattleResults(CFG.parent/'battle_results.json');self.vr_hud=SteamVRHUD();self.build();self.root.after(50,self.drain_watch_events);self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
-  if self.overlay_cfg['vr_show']:self.vr_hud.enable(True)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value=self.cfg.get('active_difficulty','') if self.cfg.get('active_difficulty') in self.DIFFICULTIES else '');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.watch_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.party_hud=None;self.party_rows=[];self.extra_widgets={};self.identity_status='自動取得の確認待ち';self.identity_log='';self.results=BattleResults(CFG.parent/'battle_results.json');self.vr_hud=SteamVRHUD();self.build();self.root.after(50,self.drain_watch_events);self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  if self.overlay_cfg['vr_show']:self.vr_hud.enable(True,self.overlay_cfg['vr_split'])
  def _overlay_options(self):
-  defaults={'show':False,'vr_show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'show_party':True,'separate_widgets':False,'widget_positions':{},'sound_path':'','volume':65,'seconds':10,'opacity':92}
+  defaults={'show':False,'vr_show':False,'vr_split':False,'show_damage':False,'show_target':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'show_party':True,'separate_widgets':False,'widget_positions':{},'sound_path':'','volume':65,'seconds':10,'opacity':92}
   saved=self.cfg.get('overlay',{})
   if isinstance(saved,dict):
    defaults.update({k:v for k,v in saved.items() if k in defaults})
@@ -380,7 +380,7 @@ class App:
   except (ValueError,TypeError):defaults['opacity']=92
   defaults['name']=str(defaults['name'])[:90]
   defaults['separate_widgets']=defaults['separate_widgets'] is True
-  defaults['vr_show']=defaults['vr_show'] is True
+  for key in ('vr_show','vr_split','show_damage','show_target'):defaults[key]=defaults[key] is True
   positions=defaults.get('widget_positions')
   defaults['widget_positions']={k:list(v) for k,v in positions.items() if k in MetricWidget.TITLES and isinstance(v,list) and len(v)==2 and all(type(n) is int and 0<=n<=16384 for n in v)} if isinstance(positions,dict) else {}
   if not isinstance(defaults['sound_path'],str) or len(defaults['sound_path'])>4096:defaults['sound_path']=''
@@ -422,13 +422,16 @@ class App:
   values={
    'weakness':(enabled and self.overlay_cfg.get('show_weakness',True) and v.get('mode')=='boss',weak),
    'tokens':(enabled and v.get('mode')=='stage','取得 %d / 出現 %d'%(v.get('tokens_collected',0),v.get('tokens_spawned',0))),
-   'dummy':(enabled and v.get('mode')=='break' and v.get('dummy_hits',0)>0,'DPS %.1f / 合計 %.0f'%(v.get('dummy_dps',0),v.get('dummy_damage',0)))}
+   'dummy':(enabled and v.get('mode')=='break' and v.get('dummy_hits',0)>0,'DPS %.1f / 合計 %.0f'%(v.get('dummy_dps',0),v.get('dummy_damage',0))),
+   'damage':(self.overlay_cfg.get('show_damage',False),'DPS %.1f  /  ボス %.0f  /  合計 %.0f'%(v.get('dps',0),v.get('boss_damage',0),v.get('total_damage',0))),
+   'target':(self.overlay_cfg.get('show_target',False),'あなたが狙われています！' if v.get('is_targeted') else 'ターゲット: '+str(v.get('target','未検出'))[:36])}
   positions=self.overlay_cfg['widget_positions']
   for index,(kind,(visible,value)) in enumerate(values.items()):
    widget=self.extra_widgets.get(kind)
    if visible:
     if widget is None or not widget.winfo_exists():
-     widget=MetricWidget(self,kind,positions.get(kind,[430,250+index*95]));self.extra_widgets[kind]=widget
+     default={'damage':[48,75],'target':[380,75]}.get(kind,[430,250+index*95])
+     widget=MetricWidget(self,kind,positions.get(kind,default));self.extra_widgets[kind]=widget
     widget.refresh(value,self.overlay_cfg.get('opacity',92));widget.deiconify()
    elif widget is not None and widget.winfo_exists():widget.withdraw()
  def toggle_hud(self,visible):
@@ -532,7 +535,7 @@ class App:
   actions=ttk.Frame(home);actions.pack(fill='x',pady=4)
   ttk.Button(actions,text='■  音楽を止める',command=self.stop_music).pack(side='left',fill='x',expand=True,padx=(0,5))
   ttk.Button(actions,text='■  自動切替を止める',command=self.stop_watch).pack(side='left',fill='x',expand=True,padx=(5,0))
-  ttk.Label(home,text='いまのゲーム（手動選択・試聴用）',style='Heading.TLabel').pack(anchor='w',pady=(20,7))
+  ttk.Label(home,text='ゲームと同じ難易度を選択（自動判定は未対応）',style='Heading.TLabel').pack(anchor='w',pady=(20,7))
   row=ttk.Frame(home);row.pack(fill='x')
   ttk.Label(row,text='難易度').pack(side='left')
   ttk.Combobox(row,textvariable=self.difficulty,values=self.DIFFICULTIES,state='readonly',width=20).pack(side='left',padx=(8,20))
@@ -720,7 +723,7 @@ class App:
    restored['sample_music_initialized']=True
    self.cfg=restored
    self.overlay_cfg=self._overlay_options()
-   self.vr_hud.enable(self.overlay_cfg['vr_show'])
+   self.vr_hud.enable(self.overlay_cfg['vr_show'],self.overlay_cfg['vr_split'])
    self.meter.configure(self.overlay_cfg['name'],self.overlay_cfg['seconds'])
    if self.overlay_cfg.get('auto_name',True):self.refresh_identity()
    self.discovered_bosses=set(restored.get('discovered_bosses',[])) if isinstance(restored.get('discovered_bosses'),list) else set()
@@ -735,6 +738,7 @@ class App:
     self.log.set(restored.get('log',''))
     self.fade.set(restored.get('fade',2))
     self.volume.set(restored.get('volume',80))
+    self.difficulty.set(restored.get('active_difficulty','') if restored.get('active_difficulty') in self.DIFFICULTIES else '')
    finally:self._loading_editor=False
    self.load_music_editor();self.boss_name_changed()
    self.on_volume_change();self.save(quiet=True);self.revision+=1
@@ -744,15 +748,18 @@ class App:
  def open_config_dir(self):
   try:os.startfile(str(CFG.parent));self.status.set('設定の保存先を開きました')
   except Exception as e:messagebox.showerror('開けませんでした',str(e))
- def play_selected(self):
-  key=self.difficulty.get()+'|'+self.phase_choice.get()
+ def play_selected(self,difficulty=None,phase=None):
+  key=(self.difficulty.get() if difficulty is None else difficulty)+'|'+(self.phase_choice.get() if phase is None else phase)
   v=self.vars.get(('music',key));track=v.get().strip() if v else ''
   if not track:self.status.set('選択した難易度・フェーズの曲が未設定です');return
   self.play(track,self.get_fallback(key))
  def get_fallback(self,key):
   v=self.vars.get(('fallback',key));return v.get().strip() if v else ''
  def play_auto(self,phase):
-  difficulty=self.difficulty.get();key=difficulty+'|'+phase
+  difficulty=self.difficulty.get()
+  if difficulty not in self.DIFFICULTIES:
+   self.stop_music();self.status.set('ゲームと同じ難易度を選択してください');return
+  key=difficulty+'|'+phase
   v=self.vars.get(('music',key));track=v.get().strip() if v else ''
   if track:self.play(track,self.get_fallback(key))
   else:self.stop_music();self.status.set(f'{difficulty} / {phase} の曲は未設定のため停止しました')
@@ -778,7 +785,7 @@ class App:
    updated.update(music=music,boss=boss,fallback=fallback,lobby=self.lobby.get().strip())
    try:fade=max(0,min(15,float(self.fade.get())))
    except (ValueError,tk.TclError):fade=2.0
-   updated.update(log=self.log.get(),fade=fade,volume=int(self.volume.get()),overlay=dict(self.overlay_cfg),discovered_bosses=sorted(self.discovered_bosses))
+   updated.update(log=self.log.get(),fade=fade,volume=int(self.volume.get()),overlay=dict(self.overlay_cfg),active_difficulty=self.difficulty.get(),discovered_bosses=sorted(self.discovered_bosses))
    tmp=CFG.with_suffix('.tmp');tmp.write_text(json.dumps(updated,ensure_ascii=False,indent=2),'utf-8');tmp.replace(CFG);self.cfg=updated
    self.status.set('設定を保存しました') if not quiet else None
    return True
@@ -864,6 +871,8 @@ class App:
  def auto_start(self):
   if self.cfg.get('auto',True):self.start()
  def start(self):
+  if self.difficulty.get() not in self.DIFFICULTIES:
+   self.status.set('音楽を始める前に、ゲームと同じ難易度を選択してください');return False
   if not self.save():return False
   # Prefer the current VRChat session's newest log over a persisted stale path.
   files=sorted(LOG.glob('output_log_*.txt'),key=session_sort_key,reverse=True)
@@ -1111,6 +1120,8 @@ class App:
    if not isinstance(show_weakness,bool):raise ValueError('弱点表示の指定が不正です')
    vr_show=d.get('vr_show',self.overlay_cfg.get('vr_show',False))
    if not isinstance(vr_show,bool):raise ValueError('VR HUDの指定が不正です')
+   split_options={key:d.get(key,self.overlay_cfg.get(key,False)) for key in ('vr_split','show_damage','show_target')}
+   if any(not isinstance(value,bool) for value in split_options.values()):raise ValueError('個別HUDの指定が不正です')
    show_party=d.get('show_party',self.overlay_cfg.get('show_party',True))
    if not isinstance(show_party,bool):raise ValueError('パーティーHUDの指定が不正です')
    separate_widgets=d.get('separate_widgets',self.overlay_cfg.get('separate_widgets',False))
@@ -1120,12 +1131,13 @@ class App:
    sound_path=sound_path.strip()
    if sound_path and Path(sound_path).suffix.lower() not in ('.wav','.mp3'):raise ValueError('通知音はWAVまたはMP3を選択してください')
    self.overlay_cfg.update(show=d['show'],alert=d['alert'],other_alerts=d['other_alerts'],name=own,auto_name=auto_name,seconds=seconds,volume=volume,opacity=opacity)
+   self.overlay_cfg.update(split_options)
    self.overlay_cfg['show_weakness']=show_weakness;self.overlay_cfg['show_party']=show_party;self.overlay_cfg['separate_widgets']=separate_widgets;self.overlay_cfg['sound_path']=sound_path;self.overlay_cfg['vr_show']=vr_show
    if auto_name:self.refresh_identity(force=True)
    else:self.identity_status='手入力モード'
    self.meter.configure(self.overlay_cfg['name'],seconds)
    self.toggle_hud(d['show'])
-   must_save();self.vr_hud.enable(vr_show);self.revision+=1
+   must_save();self.vr_hud.enable(vr_show,split_options['vr_split']);self.revision+=1
    self.status.set('バトルHUDの設定を保存しました')
    return self.status.get()
   if action=='overlay_test':
@@ -1135,7 +1147,22 @@ class App:
    if not 0<=volume<=100:raise ValueError('警告音量が範囲外です')
    play_target_tone('target_on',volume,sound_path)
    return '警告音の再生を指示しました'
+  if action=='set_active_difficulty':
+   difficulty=val('difficulty',80)
+   if difficulty not in self.DIFFICULTIES:raise ValueError('ゲームと同じ難易度を選択してください')
+   previous=self.difficulty.get()
+   self.difficulty.set(difficulty)
+   try:must_save()
+   except Exception:self.difficulty.set(previous);raise
+   if difficulty!=previous and self.worker and self.worker.is_alive() and not self.stop.is_set():
+    snapshot=self.meter.snapshot();mode=snapshot.get('mode')
+    if mode=='boss':self.handle_boss(snapshot.get('boss',''))
+    elif mode=='stage':self.play_auto('戦闘')
+    elif mode=='break':self.play_auto('休憩')
+   self.revision+=1;self.status.set('自動再生の難易度: '+difficulty)
+   return self.status.get()
   if action=='start':
+   if 'difficulty' in d:self.api_action({'action':'set_active_difficulty','difficulty':val('difficulty',80)})
    if self.start() is False:raise RuntimeError(self.status.get())
    return self.status.get()
   if action=='stop':self.stop_music();return self.status.get()
@@ -1147,8 +1174,7 @@ class App:
   if action=='play_selected':
    difficulty=val('difficulty',80);phase=val('phase',80)
    if difficulty not in self.DIFFICULTIES or phase not in self.PHASES:raise ValueError('難易度・場面が不正です')
-   self.difficulty.set(difficulty);self.phase_choice.set(phase)
-   self.play_selected();return self.status.get()
+   self.play_selected(difficulty,phase);return self.status.get()
   if action=='set_music':
    difficulty=val('difficulty',80);phase=val('phase',80)
    if difficulty not in self.DIFFICULTIES or phase not in self.PHASES:raise ValueError('難易度・場面が不正です')
@@ -1272,6 +1298,7 @@ if __name__=='__main__':
    import openvr
    from steamvr_hud import make_frame
    if make_frame({'boss':'Yuki'}).size!=(720,224):raise RuntimeError('VR HUD image size is incorrect')
+   if any(make_frame({'target':'Alice'},kind).size!=(640,136) for kind in ('damage','target')):raise RuntimeError('Split VR HUD image size is incorrect')
   except Exception as exc:
    report=os.environ.get('ECLIPTICA_VR_SELF_TEST_REPORT')
    if report:
@@ -1310,6 +1337,9 @@ if __name__=='__main__':
    app.overlay_cfg['separate_widgets']=True;app.update_hud_loop();root.update()
    if '弱火' not in app.extra_widgets['weakness'].value.cget('text'):
     raise RuntimeError('Movable weakness widget is unavailable')
+   app.overlay_cfg.update(show_damage=True,show_target=True);app.toggle_hud(False);app.update_hud_loop();root.update()
+   if any(kind not in app.extra_widgets or not app.extra_widgets[kind].winfo_viewable() for kind in ('damage','target')):
+    raise RuntimeError('Separate damage and target windows are unavailable')
    app.close()
   except Exception as exc:
    report=os.environ.get('ECLIPTICA_GUI_SELF_TEST_REPORT')
