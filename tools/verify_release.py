@@ -30,13 +30,18 @@ def verify(root):
             raise RuntimeError(f"Unexpected runnable file in app bundle: {relative}")
         if any(word in low for word in blocked_names):
             raise RuntimeError(f"Network downloader/converter unexpectedly bundled: {relative}")
+        if low.startswith('_internal/demo_audio/'):
+            raise RuntimeError(f"Trial audio unexpectedly bundled: {relative}")
         if relative in ('SHA256SUMS.txt', 'BUNDLE_AUDIT.json', 'DEFENDER_SCAN.txt'):
             continue
         entries.append({'path': relative,
                         'bytes': file.stat().st_size,
                         'sha256': hashlib.sha256(file.read_bytes()).hexdigest()})
     required = {'EclipticaMusicCompanion.exe', '_internal/unified.html',
-                '_internal/player.html', '_internal/engine.js'}
+                '_internal/player.html', '_internal/engine.js', '_internal/party.js',
+                '_internal/python314.dll',
+                '_internal/openvr/libopenvr_api_64.dll',
+                '_internal/boss_weakness_data.txt', '_internal/LICENSE_EclipticaHUD-C.txt'}
     found = {e['path'] for e in entries}
     missing = required - found
     if missing:

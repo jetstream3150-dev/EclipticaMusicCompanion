@@ -44,4 +44,9 @@ with tempfile.TemporaryDirectory() as folder:
     with second.open('ab') as handle:
         handle.write(('\n2026.10.27 18:02:00 Debug - User Authenticated: 名前3 (' + UUID + ')\n').encode('utf8'))
     assert read_authenticated_name(second) == '名前3'
+    # Do not mistake an incomplete line at EOF or a chunk edge for a full name.
+    second.write_bytes(b'2026 Debug - User Authenticated: incomplete')
+    assert read_authenticated_name(second) == ''
+    second.write_bytes(b'X' * (2_000_000 - 35) + b'\n2026 Debug - User Authenticated: cropped' + b'X' * 4_100_000)
+    assert read_authenticated_name(second) == ''
 print('VRChat local user identity checks PASS')

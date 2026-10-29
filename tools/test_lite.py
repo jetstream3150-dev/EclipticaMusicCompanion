@@ -1,5 +1,6 @@
 """Simple static invariants for the deliberately minimized release."""
 from pathlib import Path
+import re
 base=Path(__file__).resolve().parent.parent
 py=(base/'EclipticaMusic.py').read_text(encoding='utf-8')
 html=(base/'unified.html').read_text(encoding='utf-8')
@@ -12,7 +13,11 @@ assert "if action=='download':raise ValueError" in py
 assert 'music-download' not in html
 assert 'boss-download' not in html
 assert 'lobby-download' not in html
-assert '--collect-all' not in yaml
+# SteamVR's runtime DLL must be bundled, but downloaders remain excluded.
+collected=re.findall(r"'--collect-all',\s*'([^']+)'",yaml)
+assert collected and set(collected)=={'openvr'} and len(collected)==yaml.count('--collect-all')
+assert "'--exclude-module', 'yt_dlp'" in yaml
+assert "'--exclude-module', 'imageio_ffmpeg'" in yaml
 assert '--noupx' in yaml
 assert 'verify_release.py' in yaml
 assert 'combat_meter.py' in yaml

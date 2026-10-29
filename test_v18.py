@@ -44,8 +44,70 @@ def test_app():
  a.meter.ingest('ECLIPTICA - damage dealt: 320 STRIKE')
  a.update_hud_loop();root.update()
  assert a.api_view()['combat']['boss_damage']==320
+ a.meter.ingest('ECLIPTICA - now fighting boss: YukiPhase2(Clone) on phase: 0')
+ a.update_hud_loop();root.update()
+ assert a.api_view()['weakness']['name']=='Yuki(P2)'
+ assert '弱火' in a.hud.weak_lbl.cget('text')
+ a.api_action({'action':'overlay_settings','show':True,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'show_weakness':False,'sound_path':'C:/test/missing.mp3','volume':44,'seconds':10,'opacity':90})
+ a.update_hud_loop();root.update()
+ assert a.hud.weak_lbl.cget('text')==''
+ assert a.api_config()['overlay']['sound_path']=='C:/test/missing.mp3'
+ a.meter.ingest('ECLIPTICA - now in stage: Stage_A on phase: 0.1')
+ a.meter.ingest('2026 Debug - spawn token, True, 55')
+ a.meter.ingest('2026 Debug - ECLIPTICA saving SESSION ID 11508')
+ a.update_hud_loop();root.update()
+ assert '1 / 1' in a.hud.tracker_lbl.cget('text')
+ a.meter.ingest('ECLIPTICA - now in intermission')
+ a.meter.ingest('2026 Debug - Dealing 30 STRIKE damage')
+ a.update_hud_loop();root.update()
+ assert 'ダミー' in a.hud.tracker_lbl.cget('text')
+ a.api_action({'action':'party_roster','rows':[{'name':'Alice','job':'Spellhammer','dps':42.5,'boss_damage':425}]})
+ root.update()
+ assert a.party_hud is not None and a.party_hud.winfo_exists()
+ assert 'Alice' in a.party_hud.list_lbl.cget('text')
+ try:a.api_action({'action':'party_roster','rows':[{'name':'Alice','job':'','dps':float('nan'),'boss_damage':0}]})
+ except ValueError:pass
+ else:raise AssertionError('invalid party metric was accepted')
+ a.api_action({'action':'party_roster','rows':[]})
+ root.update();assert a.party_hud.state()=='withdrawn'
+ a.api_action({'action':'overlay_settings','show':True,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'show_weakness':True,'separate_widgets':True,'volume':44,'seconds':10,'opacity':90})
+ a.meter.ingest('ECLIPTICA - now fighting boss: YukiPhase2(Clone) on phase: 0')
+ a.update_hud_loop();root.update()
+ weakness=a.extra_widgets['weakness']
+ assert weakness.state()=='normal' and '弱火' in weakness.value.cget('text')
+ assert a.hud.weak_lbl.cget('text')==''
+ from types import SimpleNamespace
+ weakness.drag_start(SimpleNamespace(x_root=weakness.winfo_x()+5,y_root=weakness.winfo_y()+5))
+ weakness.drag(SimpleNamespace(x_root=205,y_root=225));root.update();weakness.drag_end(None)
+ assert a.api_config()['overlay']['widget_positions']['weakness']==[200,220]
+ a.meter.ingest('ECLIPTICA - now in stage: Stage_B on phase: 0.1')
+ a.meter.ingest('2026 Debug - spawn token, True, 55')
+ a.update_hud_loop();root.update()
+ assert a.extra_widgets['tokens'].state()=='normal' and weakness.state()=='withdrawn'
+ a.meter.ingest('ECLIPTICA - now in intermission')
+ a.meter.ingest('2026 Debug - Dealing 30 STRIKE damage')
+ a.update_hud_loop();root.update()
+ assert a.extra_widgets['dummy'].state()=='normal' and a.extra_widgets['tokens'].state()=='withdrawn'
  a.api_action({'action':'overlay_settings','show':False,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
- root.update();assert a.hud.state()=='withdrawn'
+ assert a.api_config()['overlay']['sound_path']=='C:/test/missing.mp3'
+ root.update();assert a.hud.state()=='withdrawn' and a.extra_widgets['dummy'].state()=='withdrawn'
+ a.api_action({'action':'overlay_settings','show':False,'show_damage':True,'show_target':True,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
+ a.meter.ingest('ECLIPTICA - now fighting boss: Yuki on phase: 1')
+ a.meter.ingest('ECLIPTICA - damage dealt: 120 STRIKE')
+ a.meter.ingest('ECLIPTICA - boss target: MyPlayer')
+ a.update_hud_loop();root.update()
+ assert a.extra_widgets['damage'].state()=='normal' and '120' in a.extra_widgets['damage'].value.cget('text')
+ assert a.extra_widgets['target'].state()=='normal' and '狙われています' in a.extra_widgets['target'].value.cget('text')
+ assert a.extra_widgets['damage'].winfo_viewable() and a.extra_widgets['target'].winfo_viewable()
+ assert bool(a.extra_widgets['damage'].attributes('-topmost')) and bool(a.extra_widgets['target'].attributes('-topmost'))
+ assert a.hud.state()=='withdrawn'
+ damage=a.extra_widgets['damage'];damage.drag_start(SimpleNamespace(x_root=damage.winfo_x()+5,y_root=damage.winfo_y()+5))
+ damage.drag(SimpleNamespace(x_root=305,y_root=245));root.update();damage.drag_end(None)
+ assert a.api_config()['overlay']['widget_positions']['damage']==[300,240]
+ a.hide_metric_widget('target');root.update()
+ assert a.extra_widgets['target'].state()=='withdrawn' and damage.state()=='normal'
+ assert a.api_view()['damage_overlay_enabled'] and not a.api_view()['target_overlay_enabled']
+ assert not a.api_config()['overlay']['show_target']
  a.close();print('Tk integration checks PASS')
 
 if __name__=='__main__':
