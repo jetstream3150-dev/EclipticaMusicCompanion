@@ -10,6 +10,8 @@ from combat_meter import CombatMeter
 from boss_weakness import lookup as lookup_weakness
 from alert_sound import play_custom_sound
 from vrchat_identity import detect_identity, session_sort_key
+from battle_results import BattleResults
+from steamvr_hud import SteamVRHUD
 BASE=Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 USER_DIR=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else BASE
 CFG=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'EclipticaMusicCompanion'/'settings.json'
@@ -31,6 +33,11 @@ SAMPLE_FALLBACK_FILES={
  SAMPLE_PHASE_TRACKS['準備']:'calm.wav',
  SAMPLE_PHASE_TRACKS['終了']:'calm.wav',
 }
+DEMO_TRACKS={'demo://battle':'battle.wav','demo://boss':'boss.wav','demo://calm':'calm.wav'}
+def resolve_demo_track(track):
+ name=DEMO_TRACKS.get(track)
+ return str(BASE/'demo_audio'/name) if name else track
+
 def sample_fallback(track):
  name=SAMPLE_FALLBACK_FILES.get(track)
  if not name:return ''
@@ -51,6 +58,30 @@ def youtube_id(track):
   else:return ''
   return video if re.fullmatch(r'[A-Za-z0-9_-]{11}',video) else ''
  except (ValueError,IndexError):return ''
+
+def read_resume_snapshot(path,meter):
+ """Replay only complete recent lines, without replaying damage or alerts."""
+ stat=path.stat();end=stat.st_size
+ if time.time()-stat.st_mtime>7200:return end,None
+ with path.open('rb') as stream:
+  begin=max(0,end-2_000_000);stream.seek(begin);data=stream.read(end-begin)
+ last=data.rfind(b'\n')
+ offset=begin+last+1 if last>=0 else begin
+ data=data[:last+1] if last>=0 else b''
+ if begin and data:
+  first=data.find(b'\n');data=data[first+1:] if first>=0 else b''
+ event=None
+ for line in data.decode('utf-8','replace').splitlines():
+  meter.ingest(line,replay=True)
+  if re.search(r'\[Behaviour\]\s*(?:Entering Room:|OnLeftRoom\b)',line,re.I):event=None
+  if 'ECLIPTICA - now in intermission' in line:event=('休憩',None)
+  elif 'ECLIPTICA - now in lobby' in line:event=('ロビー',None)
+  else:
+   boss=re.search(r'ECLIPTICA - now fighting boss:\s*(.+?)\s+on phase:',line)
+   stage=re.search(r'ECLIPTICA - now in stage:\s*(.+?)\s+on phase:',line)
+   if boss:event=('ボス',re.sub(r'\(Clone\)$','',boss.group(1).strip(),flags=re.I).strip())
+   elif stage:event=('戦闘',stage.group(1).strip())
+ return offset,event
 
 def add_sample_music_once(cfg,difficulties):
  # Fill missing slots on first upgrade without changing any existing selection.
@@ -330,9 +361,10 @@ class PartyHUD(tk.Toplevel):
 
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.watch_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.party_hud=None;self.party_rows=[];self.extra_widgets={};self.identity_status='自動取得の確認待ち';self.identity_log='';self.build();self.root.after(50,self.drain_watch_events);self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value='Primal');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.watch_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.party_hud=None;self.party_rows=[];self.extra_widgets={};self.identity_status='自動取得の確認待ち';self.identity_log='';self.results=BattleResults(CFG.parent/'battle_results.json');self.vr_hud=SteamVRHUD();self.build();self.root.after(50,self.drain_watch_events);self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  if self.overlay_cfg['vr_show']:self.vr_hud.enable(True)
  def _overlay_options(self):
-  defaults={'show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'show_party':True,'separate_widgets':False,'widget_positions':{},'sound_path':'','volume':65,'seconds':10,'opacity':92}
+  defaults={'show':False,'vr_show':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'show_party':True,'separate_widgets':False,'widget_positions':{},'sound_path':'','volume':65,'seconds':10,'opacity':92}
   saved=self.cfg.get('overlay',{})
   if isinstance(saved,dict):
    defaults.update({k:v for k,v in saved.items() if k in defaults})
@@ -348,6 +380,7 @@ class App:
   except (ValueError,TypeError):defaults['opacity']=92
   defaults['name']=str(defaults['name'])[:90]
   defaults['separate_widgets']=defaults['separate_widgets'] is True
+  defaults['vr_show']=defaults['vr_show'] is True
   positions=defaults.get('widget_positions')
   defaults['widget_positions']={k:list(v) for k,v in positions.items() if k in MetricWidget.TITLES and isinstance(v,list) and len(v)==2 and all(type(n) is int and 0<=n<=16384 for n in v)} if isinstance(positions,dict) else {}
   if not isinstance(defaults['sound_path'],str) or len(defaults['sound_path'])>4096:defaults['sound_path']=''
@@ -415,14 +448,29 @@ class App:
    if kind=='boss':
     if value not in self.discovered_bosses:
      self.discovered_bosses.add(value);self.cfg['discovered_bosses']=sorted(self.discovered_bosses);self.revision+=1
+   elif kind=='result':self.record_result(value)
    elif kind in ('target_on','target_off','target_switch'):
     if self.overlay_cfg.get('alert',True) and (kind!='target_switch' or self.overlay_cfg.get('other_alerts',False)):
      play_target_tone(kind,int(self.overlay_cfg.get('volume',65)),self.overlay_cfg.get('sound_path',''))
   snapshot=self.meter.snapshot()
+  if getattr(self,'vr_hud',None):self.vr_hud.update(snapshot)
   if self.hud is not None and self.hud.winfo_exists():
    self.hud.refresh(snapshot,self.overlay_cfg)
   self.refresh_metric_widgets(snapshot)
   if self.root.winfo_exists():self.root.after(350,self.update_hud_loop)
+ def record_result(self,result):
+  try:self.results.append(result)
+  except (OSError,ValueError) as exc:self.status.set('戦闘記録を保存できませんでした: '+str(exc)[:120])
+ def finish_monitor(self,reason):
+  self.stop.set()
+  if self.worker and self.worker.is_alive():self.worker.join(timeout=.75)
+  # Keep completed records that arrived just before monitoring stopped.
+  while True:
+   try:generation,kind,value=self.combat_events.get_nowait()
+   except queue.Empty:break
+   if generation==self._watch_generation and kind=='result':self.record_result(value)
+  prior=self.meter.interrupt(reason)
+  if prior:self.record_result(prior[1])
  def build(self):
   BG='#0b1020';PANEL='#17263d';FIELD='#263650';EDGE='#304363';TEXT='#edf4ff';MUTED='#9cb0cc';ACCENT='#49e7da'
   style=ttk.Style(self.root)
@@ -672,6 +720,7 @@ class App:
    restored['sample_music_initialized']=True
    self.cfg=restored
    self.overlay_cfg=self._overlay_options()
+   self.vr_hud.enable(self.overlay_cfg['vr_show'])
    self.meter.configure(self.overlay_cfg['name'],self.overlay_cfg['seconds'])
    if self.overlay_cfg.get('auto_name',True):self.refresh_identity()
    self.discovered_bosses=set(restored.get('discovered_bosses',[])) if isinstance(restored.get('discovered_bosses'),list) else set()
@@ -791,10 +840,12 @@ class App:
   if self.worker and self.worker.is_alive():self.status.set('監視中です。最初だけプレイヤーの「再生を有効化」を押してください')
  def play(self,track,fallback=''):
   track=track.strip()
-  if not track:return
+  if not track:self.status.set('曲を設定してください');return False
+  track=resolve_demo_track(track)
+  fallback=resolve_demo_track(fallback.strip())
   is_youtube=bool(youtube_id(track))
   if not is_youtube and not Path(track).is_file():
-   self.stop_music();self.status.set('有効なYouTube動画のURLか存在する音楽ファイルを設定してください');return
+   self.stop_music();self.status.set('有効なYouTube動画のURLか存在する音楽ファイルを設定してください');return False
   # Preserve explicit user fallbacks; use a bundled original loop only for the
   # preset videos if the user hasn't specified one.
   if is_youtube and not fallback:fallback=sample_fallback(track)
@@ -806,6 +857,7 @@ class App:
   except (ValueError,tk.TclError):fade=2.0
   with lock:state.update(seq=state['seq']+1,track=track,fade=fade,volume=max(0,min(100,int(self.volume.get())))/100,stop=False,fallback=fallback)
   self.status.set('▶ 再生を指示しました: '+track[:65])
+  return True
  def stop_music(self):
   with lock:state.update(seq=state['seq']+1,stop=True)
   self.status.set('■ 停止を指示しました（プレイヤーに反映されます）')
@@ -820,7 +872,7 @@ class App:
   if p is None or not p.is_file():
    self.status.set('VRChatログが見つかりません。VRChatを起動してください');return False
   self.log.set(str(p))
-  self.stop.set()
+  self.finish_monitor('監視再開')
   self._watch_generation+=1
   self.meter.reset();self.meter.configure(self.overlay_cfg['name'],self.overlay_cfg['seconds'])
   for pending in (self.combat_events,self.watch_events):
@@ -837,41 +889,22 @@ class App:
  def resume_from_log(self,p):
   # The most recent ECLIPTICA state in this VRChat session is a best-effort hint.
   try:
-   stat=p.stat();end=stat.st_size
-   if time.time()-stat.st_mtime>7200:return end
-   with p.open('rb') as f:
-    begin=max(0,end-2_000_000);f.seek(begin);data=f.read(end-begin)
-   last=data.rfind(b'\n')
-   offset=begin+last+1 if last>=0 else begin
-   data=data[:last+1] if last>=0 else b''
-   if begin and data:
-    first=data.find(b'\n');data=data[first+1:] if first>=0 else b''
-   raw=data.decode('utf-8','replace')
-   last_event=None
-   for line in raw.splitlines():
-    self.meter.ingest(line,replay=True)
-    if re.search(r'\[Behaviour\]\s*(?:Entering Room:|OnLeftRoom\b)',line,re.I):last_event=None
-    if 'ECLIPTICA - now in intermission' in line:last_event=('休憩',None)
-    elif 'ECLIPTICA - now in lobby' in line:last_event=('ロビー',None)
-    else:
-     b=re.search(r'ECLIPTICA - now fighting boss:\s*(.+?)\s+on phase:',line)
-     st=re.search(r'ECLIPTICA - now in stage:\s*(.+?)\s+on phase:',line)
-     if b:
-      n=re.sub(r'\(Clone\)$','',b.group(1).strip(),flags=re.I)
-      self.discovered_bosses.add(n);last_event=('ボス',n)
-     elif st:last_event=('戦闘',st.group(1).strip())
+   offset,last_event=read_resume_snapshot(p,self.meter)
    if last_event:
     kind,name=last_event
     if kind=='ボス':self.handle_boss(name)
     elif kind=='ロビー':self.handle_event('途中参加・ロビー','ロビー')
     else:self.handle_event('途中参加・推定'+kind,kind)
-   else:self.status.set('現在の場面をログから特定できません。手動で曲を選択してください')
+   else:
+    self.status.set('現在の場面をログから特定できません。次のゲームイベントを待っています')
+    if hasattr(self,'event_status'):self.event_status.set('現在の場面は未確認。次のゲームイベントを待っています')
    return offset
   except (OSError,UnicodeError) as e:
    self.status.set('途中参加の状態確認に失敗: '+str(e));return None
  def stop_watch(self):
+  self.finish_monitor('監視停止')
   self._watch_generation+=1
-  self.stop.set();self.status.set('■ 自動切り替えを停止しました')
+  self.status.set('■ 自動切り替えを停止しました')
  def drain_watch_events(self):
   # Only the GUI thread touches Tk; stale events from an old watcher are ignored.
   for _ in range(100):
@@ -909,6 +942,8 @@ class App:
        f.close();f=p.open('rb');partial=b'';skipping=False
        with self.meter.lock:
         if signal.is_set():break
+        previous=self.meter.interrupt('ログ更新')
+        if previous:self.combat_events.put((generation,'result',previous[1]))
         self.meter.reset()
        emit('status','ログが更新されたため監視を再開しました: '+p.name)
        continue
@@ -917,12 +952,23 @@ class App:
       except OSError:current_key=None
       if newest and newest!=p and (current_key is None or session_sort_key(newest)>current_key):
        nf=newest.open('rb')
-       nf.seek(0,2)
-       with self.meter.lock:
-        if signal.is_set():nf.close();break
-        self.meter.reset()
+       try:
+        with self.meter.lock:
+         if signal.is_set():nf.close();break
+         previous=self.meter.interrupt('ログ切替')
+         if previous:self.combat_events.put((generation,'result',previous[1]))
+         self.meter.reset()
+         resume_offset,resume_event=read_resume_snapshot(newest,self.meter)
+       except Exception:
+        nf.close();raise
+       nf.seek(resume_offset)
        f.close();f=nf;p=newest;partial=b'';skipping=False
        emit('log',str(p));emit('status','新しいログへ自動切替: '+p.name)
+       if resume_event:
+        kind,name=resume_event
+        if kind=='ボス':emit('boss',name)
+        else:emit('phase',('ログ切替後・推定'+kind,kind))
+       else:emit('status','ログ切替後の場面は未確認です。次のゲームイベントを待っています')
      except OSError:pass
      continue
     # Bound memory if a corrupted log contains an exceptionally long line.
@@ -940,8 +986,10 @@ class App:
      for transition in self.meter.ingest(line):
       # The HUD consumes boss/target events only; queuing every damage hit
       # would let an ignored backlog grow indefinitely during busy fights.
-      if transition[0] in ('boss','target_on','target_off','target_switch'):
+      if transition[0] in ('boss','target_on','target_off','target_switch','result'):
        self.combat_events.put((generation,transition[0],transition[1]))
+    if re.search(r'\[Behaviour\]\s*OnLeftRoom\b',line,re.I):
+     emit('phase',('VRChatワールドを退出',None));continue
     if 'ECLIPTICA - now in intermission' in line:
      emit('phase',('休憩開始','休憩'))
     elif 'ECLIPTICA - now in lobby' in line:
@@ -1016,9 +1064,10 @@ class App:
    'phases':list(self.PHASES),'boss_choices':sorted(set(self.BOSS_CHOICES)|set(self.OFFICIAL_BOSS_CHOICES)|self.discovered_bosses|set(self.boss_map),key=str.casefold),'revision':self.revision}
  def api_view(self):
   combat=self.meter.snapshot()
+  with lock:player_connected=bool(state.get('player_seen') and time.time()-state['player_seen']<5)
   return {'status':self.status.get(),'event':self.event_status.get(),
     'player':self.player_status.get(),'monitoring':bool(self.worker and self.worker.is_alive() and not self.stop.is_set()),
-    'revision':self.revision,'volume':self.volume.get(),'combat':combat,'weakness':lookup_weakness(combat['boss'],str(BASE/'boss_weakness_data.txt')),'overlay_visible':bool(self.overlay_cfg['show']),'party_overlay_enabled':bool(self.overlay_cfg.get('show_party',True)),'identity_status':self.identity_status}
+    'revision':self.revision,'volume':self.volume.get(),'combat':combat,'weakness':lookup_weakness(combat['boss'],str(BASE/'boss_weakness_data.txt')),'overlay_visible':bool(self.overlay_cfg['show']),'party_overlay_enabled':bool(self.overlay_cfg.get('show_party',True)),'identity_status':self.identity_status,'vr_status':self.vr_hud.status(),'results':self.results.latest(),'diagnostics':{'player_connected':player_connected,'log_exists':bool(self.log.get().strip() and Path(self.log.get()).is_file())}}
  def api_action(self,d):
   action=d.get('action','')
   if not isinstance(action,str):raise ValueError('不正な操作です')
@@ -1060,6 +1109,8 @@ class App:
     if not isinstance(d.get(key),bool):raise ValueError('HUDのチェック項目が不正です')
    show_weakness=d.get('show_weakness',True)
    if not isinstance(show_weakness,bool):raise ValueError('弱点表示の指定が不正です')
+   vr_show=d.get('vr_show',self.overlay_cfg.get('vr_show',False))
+   if not isinstance(vr_show,bool):raise ValueError('VR HUDの指定が不正です')
    show_party=d.get('show_party',self.overlay_cfg.get('show_party',True))
    if not isinstance(show_party,bool):raise ValueError('パーティーHUDの指定が不正です')
    separate_widgets=d.get('separate_widgets',self.overlay_cfg.get('separate_widgets',False))
@@ -1069,12 +1120,12 @@ class App:
    sound_path=sound_path.strip()
    if sound_path and Path(sound_path).suffix.lower() not in ('.wav','.mp3'):raise ValueError('通知音はWAVまたはMP3を選択してください')
    self.overlay_cfg.update(show=d['show'],alert=d['alert'],other_alerts=d['other_alerts'],name=own,auto_name=auto_name,seconds=seconds,volume=volume,opacity=opacity)
-   self.overlay_cfg['show_weakness']=show_weakness;self.overlay_cfg['show_party']=show_party;self.overlay_cfg['separate_widgets']=separate_widgets;self.overlay_cfg['sound_path']=sound_path
+   self.overlay_cfg['show_weakness']=show_weakness;self.overlay_cfg['show_party']=show_party;self.overlay_cfg['separate_widgets']=separate_widgets;self.overlay_cfg['sound_path']=sound_path;self.overlay_cfg['vr_show']=vr_show
    if auto_name:self.refresh_identity(force=True)
    else:self.identity_status='手入力モード'
    self.meter.configure(self.overlay_cfg['name'],seconds)
    self.toggle_hud(d['show'])
-   must_save();self.revision+=1
+   must_save();self.vr_hud.enable(vr_show);self.revision+=1
    self.status.set('バトルHUDの設定を保存しました')
    return self.status.get()
   if action=='overlay_test':
@@ -1091,7 +1142,8 @@ class App:
   if action=='stop_watch':self.stop_watch();return self.status.get()
   if action=='save':must_save(quiet=False);return self.status.get()
   if action=='play':
-   self.play(val('track'),val('fallback'));return self.status.get()
+   if self.play(val('track'),val('fallback')) is False:raise ValueError(self.status.get())
+   return self.status.get()
   if action=='play_selected':
    difficulty=val('difficulty',80);phase=val('phase',80)
    if difficulty not in self.DIFFICULTIES or phase not in self.PHASES:raise ValueError('難易度・場面が不正です')
@@ -1106,6 +1158,20 @@ class App:
    must_save();self.revision+=1
    self.status.set('曲の設定を保存しました: '+difficulty+' / '+phase)
    return self.status.get()
+  if action=='set_music_all':
+   phase=val('phase',80);track=val('track');fallback=val('fallback')
+   if phase not in self.PHASES:raise ValueError('場面が不正です')
+   if not track:raise ValueError('曲を選択してください')
+   changed=[]
+   for difficulty in self.DIFFICULTIES:
+    key=difficulty+'|'+phase
+    for group,value in (('music',track),('fallback',fallback)):
+     variable=self.vars[(group,key)];changed.append((variable,variable.get()));variable.set(value)
+   try:must_save()
+   except Exception:
+    for variable,previous in changed:variable.set(previous)
+    raise
+   self.revision+=1;self.status.set('すべての難易度の「'+phase+'」に設定しました');return self.status.get()
   if action=='add_boss':
    name=val('boss',120)
    if not name:raise ValueError('ボス名を入力してください')
@@ -1188,7 +1254,8 @@ class App:
    self.ui_goodbye_at=0
   if self.root.winfo_exists():self.root.after(1800,self.check_ui_closed)
  def close(self):
-  self.stop.set();self.save(quiet=True);self.stop_music()
+  self.finish_monitor('アプリ終了')
+  self.save(quiet=True);self.stop_music();self.vr_hud.close()
   for widget in self.extra_widgets.values():
    if widget.winfo_exists():widget.destroy()
   if self.party_hud is not None and self.party_hud.winfo_exists():self.party_hud.destroy()
@@ -1200,6 +1267,18 @@ class App:
    except Exception:pass
   self.root.destroy()
 if __name__=='__main__':
+ if '--vr-self-test' in sys.argv:
+  try:
+   import openvr
+   from steamvr_hud import make_frame
+   if make_frame({'boss':'Yuki'}).size!=(720,224):raise RuntimeError('VR HUD image size is incorrect')
+  except Exception as exc:
+   report=os.environ.get('ECLIPTICA_VR_SELF_TEST_REPORT')
+   if report:
+    try:Path(report).write_text(type(exc).__name__+': '+str(exc),encoding='utf-8')
+    except OSError:pass
+   sys.exit(89)
+  sys.exit(0)
  # PyInstaller post-build health check: run without opening the UI or Edge.
  # This catches missing Tcl/Tk assets *before* GitHub Actions publishes the EXE.
  if '--tk-self-test' in sys.argv:

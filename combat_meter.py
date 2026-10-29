@@ -73,6 +73,29 @@ class CombatMeter:
             self.dummy_hits=0
             self.dummy_started=None
             self.dummy_ended=None
+            self.battle_started=None
+            self.battle_partial=False
+            self.battle_events=0
+
+    def _finish_boss(self, now, reason, replay=False):
+        """Close the observed boss segment without guessing its outcome."""
+        if not self.boss or self.battle_started is None:
+            return None
+        duration=max(0.0,now-self.battle_started)
+        result={
+            'boss':self.boss, 'ended_at':time.time(),
+            'seconds':round(duration,1), 'damage':round(self.boss_total,1),
+            'average_dps':round(self.boss_total/duration,1) if duration>=1 else 0.0,
+            'events':self.battle_events,
+            'partial':self.battle_partial or reason in ('監視中断','監視停止','監視再開','ログ切替','ログ更新','アプリ終了','ワールド退出','ワールド移動'),
+            'reason':reason,
+        }
+        self.battle_started=None
+        return None if replay else ('result',result)
+
+    def interrupt(self, reason='監視中断', now=None):
+        with self.lock:
+            return self._finish_boss(time.monotonic() if now is None else float(now),reason)
 
     def _finish_dummy(self, now):
         if self.dummy_started is not None and self.dummy_ended is None:
@@ -90,12 +113,14 @@ class CombatMeter:
         with self.lock:
             room=ROOM_RX.search(line)
             if room:
+                result=self._finish_boss(t,'ワールド移動',replay)
                 self.reset()
                 self.in_ecliptica='ecliptica' in room.group(1).casefold()
-                return []
+                return [result] if result else []
             if LEFT_ROOM_RX.search(line):
+                result=self._finish_boss(t,'ワールド退出',replay)
                 self.reset()
-                return []
+                return [result] if result else []
             explicit='ECLIPTICA' in line.upper()
             if BOSS_RX.search(line) or STAGE_RX.search(line) or (explicit and ('now in lobby' in line.lower() or 'now in intermission' in line.lower())):
                 self.in_ecliptica=True
@@ -103,6 +128,8 @@ class CombatMeter:
             prefix=LOG_PREFIX_RX.search(line)
             message=line[prefix.end():].strip() if prefix else line.strip()
             if explicit and ('now in lobby' in line.lower() or 'now in intermission' in line.lower()):
+                result=self._finish_boss(t,'場面切替',replay)
+                if result:transitions.append(result)
                 self.target=''
                 if 'now in lobby' in line.lower():
                     self._finish_dummy(t);self.mode='lobby'
@@ -111,13 +138,16 @@ class CombatMeter:
                         self.dummy_damage=0.0;self.dummy_hits=0;self.dummy_started=None;self.dummy_ended=None
                     self.mode='break'
                 self.boss='';self.boss_total=0;self.phase_total=0;self.phase=''
-                return []
+                return transitions
             boss=BOSS_RX.search(line)
             if boss:
                 self._finish_dummy(t);self.mode='boss'
                 name=_clean_name(boss.group(1));phase=_clean_name(boss.group(2))
                 if name and name.casefold()!=self.boss.casefold():
+                    result=self._finish_boss(t,'ボス切替',replay)
+                    if result:transitions.append(result)
                     self.boss=name;self.phase=phase;self.boss_total=0;self.phase_total=0;self.target=''
+                    self.battle_started=t;self.battle_partial=bool(replay);self.battle_events=0
                     transitions.append(('boss',name))
                 elif self.phase!=phase:
                     self.phase=phase;self.phase_total=0
@@ -128,6 +158,8 @@ class CombatMeter:
                 job=JOB_RX.search(line)
                 if job:self.job=_clean_name(job.group(1))[:40]
                 if name.casefold()!=self.stage.casefold() or self.mode in ('unknown','break','lobby','boss'):
+                    result=self._finish_boss(t,'場面切替',replay)
+                    if result:transitions.append(result)
                     self.tokens_spawned=self.tokens_pending;self.tokens_pending=0;self.tokens_collected=0
                     self.boss='';self.boss_total=0;self.phase_total=0;self.phase=''
                 self._finish_dummy(t);self.stage=name;self.mode='stage'
@@ -196,6 +228,7 @@ class CombatMeter:
         self.total+=amount
         if self.boss:
             self.boss_total+=amount;self.phase_total+=amount
+            self.battle_events+=1
         self.peak=max(self.peak,amount)
         self.damage_events.append((now,amount))
         if direct:

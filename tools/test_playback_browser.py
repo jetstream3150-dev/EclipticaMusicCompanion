@@ -25,7 +25,8 @@ window.YT={PlayerState:{ENDED:0},Player:function(id,opts){
   this.stopVideo=function(){};this.setVolume=function(){};this.seekTo=function(){};
   this.playVideo=function(){};this.getPlayerState=function(){return -1;};
   this.loadVideoById=function(video){window.__testYoutubeLoads.push(video);
-    setTimeout(function(){if(video==='Autoplay123')opts.events.onAutoplayBlocked({});
+    setTimeout(function(){if(video==='Allowed1234')opts.events.onStateChange({data:1});
+      else if(video==='Autoplay123')opts.events.onAutoplayBlocked({});
       else opts.events.onError({data:150});},100);};
   var self=this;setTimeout(function(){opts.events.onReady({target:self});},0);
 }};
@@ -59,11 +60,17 @@ class FakeApp:
             player = music.state['player_status']
         return {'status':'待機中', 'event':'待機中', 'player':player,
                 'monitoring':False, 'revision':0, 'combat':{}, 'weakness':{},
-                'overlay_visible':False, 'party_overlay_enabled':False, 'identity_status':''}
+                'overlay_visible':False, 'party_overlay_enabled':False, 'identity_status':'',
+                'diagnostics':{'player_connected':True,'log_exists':False}, 'volume':80,
+                'vr_status':'OFF','results':[]}
 
     def api_action(self, data):
         if data.get('action') == 'play_selected':
             self.player.play(music.SAMPLE_PHASE_TRACKS['戦闘'])
+            return self.player.status.get()
+        if data.get('action') == 'play':
+            if self.player.play(data.get('track',''),data.get('fallback','')) is False:
+                raise ValueError(self.player.status.get())
             return self.player.status.get()
         return 'OK'
 
@@ -205,6 +212,30 @@ def main():
             js('window.__releaseRace(); return true;')
             wait_for(lambda: playing('boss.wav'), 'pending local playback after minimize')
             print('PASS: minimizing during a pending local play does not interrupt music', flush=True)
+
+            call('POST', '/session/' + session + '/window/maximize', {})
+            wait_for(lambda: js('return !document.hidden;'), 'restore browser for registration checks')
+            js("selectPanel('music'); let e=document.getElementById('music-track'); "
+               "e.value='https://www.youtube.com/watch?v=AAAAAAAAAAA';e.dispatchEvent(new Event('input',{bubbles:true})); "
+               "document.getElementById('music-fallback').value=''; document.getElementById('music-save').click();return true;")
+            rejected = wait_for(lambda: js("let t=document.getElementById('music-check').textContent; return t.includes('再生できません') ? t : null;"), 'registration error 150')
+            assert '埋め込みが許可されていません' in rejected, rejected
+            print('PASS: saved restricted URL displays the real player rejection, without claiming success', flush=True)
+
+            js("let e=document.getElementById('music-track');e.value='https://www.youtube.com/watch?v=Allowed1234';"
+               "e.dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('music-preview').click();return true;")
+            allowed=wait_for(lambda: js("let t=document.getElementById('music-check').textContent;return t.includes('再生を確認:')?t:null;"), 'registered URL playback event')
+            assert '再生を確認' in allowed, allowed
+            print('PASS: successful mocked YouTube player event produces a confirmed result', flush=True)
+
+            js("document.querySelector('[data-preset=music]').click();document.getElementById('music-preview').click();return true;")
+            preset=wait_for(lambda: playing('battle.wav'), 'built-in preset playback')
+            wait_for(lambda: js("return document.getElementById('music-check').textContent.includes('再生を確認:');"), 'built-in preset result')
+            print('PASS: bundled preset plays through the actual HTML audio element', flush=True)
+            js("selectPanel('home');document.getElementById('diagnose').click();return true;")
+            diagnosis=wait_for(lambda: js("let t=document.getElementById('diagnosis').textContent;return t.includes('VRChatログ')?t:null;"), 'one-click diagnostic')
+            assert '出力' in diagnosis and '未確認' in diagnosis, diagnosis
+            print('PASS: diagnostics distinguish missing log and unverified speaker output', flush=True)
         finally:
             if session:
                 try: call('DELETE', '/session/' + session)

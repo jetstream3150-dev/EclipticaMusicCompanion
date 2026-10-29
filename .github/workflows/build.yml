@@ -82,6 +82,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_api_gui
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_features
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_steamvr
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_playback_browser
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check engine.js
@@ -102,6 +106,7 @@ jobs:
             '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir', '--windowed',
             '--noupx', '--name', 'EclipticaMusicCompanion',
             '--exclude-module', 'yt_dlp', '--exclude-module', 'imageio_ffmpeg',
+            '--collect-all', 'openvr',
             '--add-data', 'player.html;.', '--add-data', 'unified.html;.',
             '--add-data', 'engine.js;.',
             '--add-data', 'demo_audio;demo_audio',
@@ -289,7 +294,8 @@ jobs:
             '--distpath', $singleDir,
             '--workpath', (Join-Path $env:RUNNER_TEMP 'ecliptica-onefile-work'),
             '--specpath', $specDir,
-            '--exclude-module', 'yt_dlp', '--exclude-module', 'imageio_ffmpeg'
+            '--exclude-module', 'yt_dlp', '--exclude-module', 'imageio_ffmpeg',
+            '--collect-all', 'openvr'
           )
           foreach ($asset in @('player.html', 'unified.html', 'engine.js', 'party.js',
                                'boss_weakness_data.txt', 'LICENSE_EclipticaHUD-C.txt')) {
@@ -318,12 +324,13 @@ jobs:
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'ecliptica-onefile-gui-test'
           $env:ECLIPTICA_TK_SELF_TEST_REPORT = Join-Path $env:RUNNER_TEMP 'onefile-tk-error.txt'
           $env:ECLIPTICA_GUI_SELF_TEST_REPORT = Join-Path $env:RUNNER_TEMP 'onefile-gui-error.txt'
+          $env:ECLIPTICA_VR_SELF_TEST_REPORT = Join-Path $env:RUNNER_TEMP 'onefile-vr-error.txt'
           $exe = (Resolve-Path (Join-Path $env:ECLIPTICA_SCAN_ROOT 'standalone/EclipticaMusicCompanion.exe')).Path
-          foreach ($option in @('--tk-self-test', '--gui-self-test')) {
+          foreach ($option in @('--tk-self-test', '--gui-self-test', '--vr-self-test')) {
             $probe = Start-Process -FilePath $exe -ArgumentList $option -PassThru
             if (-not $probe.WaitForExit(60000)) { $probe.Kill(); throw "Standalone $option timed out." }
             if ($probe.ExitCode -ne 0) {
-              foreach ($report in @($env:ECLIPTICA_TK_SELF_TEST_REPORT, $env:ECLIPTICA_GUI_SELF_TEST_REPORT)) {
+              foreach ($report in @($env:ECLIPTICA_TK_SELF_TEST_REPORT, $env:ECLIPTICA_GUI_SELF_TEST_REPORT, $env:ECLIPTICA_VR_SELF_TEST_REPORT)) {
                 if (Test-Path -LiteralPath $report) { Get-Content -LiteralPath $report }
               }
               throw "Standalone $option failed with exit code $($probe.ExitCode)."
