@@ -86,6 +86,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_steamvr
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.test_difficulty_hud
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m tools.test_playback_browser
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check engine.js

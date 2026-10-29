@@ -91,6 +91,17 @@ def test_app():
  a.api_action({'action':'overlay_settings','show':False,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
  assert a.api_config()['overlay']['sound_path']=='C:/test/missing.mp3'
  root.update();assert a.hud.state()=='withdrawn' and a.extra_widgets['dummy'].state()=='withdrawn'
+ a.api_action({'action':'overlay_settings','show':False,'show_damage':True,'show_target':True,'name':'MyPlayer','auto_name':False,'alert':True,'other_alerts':False,'volume':44,'seconds':10,'opacity':90})
+ a.meter.ingest('ECLIPTICA - now fighting boss: Yuki on phase: 1')
+ a.meter.ingest('ECLIPTICA - damage dealt: 120 STRIKE')
+ a.meter.ingest('ECLIPTICA - boss target: MyPlayer')
+ a.update_hud_loop();root.update()
+ assert a.extra_widgets['damage'].state()=='normal' and '120' in a.extra_widgets['damage'].value.cget('text')
+ assert a.extra_widgets['target'].state()=='normal' and '狙われています' in a.extra_widgets['target'].value.cget('text')
+ assert a.hud.state()=='withdrawn'
+ damage=a.extra_widgets['damage'];damage.drag_start(SimpleNamespace(x_root=damage.winfo_x()+5,y_root=damage.winfo_y()+5))
+ damage.drag(SimpleNamespace(x_root=305,y_root=245));root.update();damage.drag_end(None)
+ assert a.api_config()['overlay']['widget_positions']['damage']==[300,240]
  a.close();print('Tk integration checks PASS')
 
 if __name__=='__main__':

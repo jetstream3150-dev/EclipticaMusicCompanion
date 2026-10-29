@@ -67,7 +67,7 @@ class APIQueueTests(unittest.TestCase):
             app._saving = False; app._save_after = None; app.unified = True
             app.vars = {}; app.boss_map = {}; app.boss_fallback_map = {}
             app.cfg = {}; app.lobby = Value(''); app.log = Value('')
-            app.fade = Value(2); app.volume = Value(80); app.overlay_cfg = {}
+            app.fade = Value(2); app.volume = Value(80); app.overlay_cfg = {}; app.difficulty = Value('')
             app.discovered_bosses = set(); app.status = Value(''); app.revision = 0
             with patch.object(music, 'CFG', Path(tmp) / 'settings.json'), \
                  patch.object(Path, 'write_text', side_effect=PermissionError('test denied')), \

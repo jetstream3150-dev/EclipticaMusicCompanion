@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import threading
+import time
 from http.server import ThreadingHTTPServer
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -88,6 +89,34 @@ def main():
                 status, state = request('/state')
                 assert status == 200 and state['track'].replace('\\','/').endswith('/demo_audio/battle.wav'), state
                 print('PASS: actual GUI saves the built-in preset for every difficulty and resolves its bundled path', flush=True)
+
+                for difficulty, track in [('Primal','demo://calm'),('Eclipse','demo://battle')]:
+                    status, response = request('/api/action', {'action':'set_music','difficulty':difficulty,'phase':'戦闘','track':track,'fallback':''})
+                    assert status == 200 and response['ok'], response
+                log = log_dir / 'output_log_2026-10-29_00-00-00.txt'
+                log.write_text('ECLIPTICA - now in stage: Stage_ProtoColony on phase: 0.1 as class: Nekomancer\n', encoding='utf-8')
+                status, response = request('/api/action', {'action':'start','difficulty':'Eclipse'})
+                assert status == 200 and response['ok'], response
+                status, state = request('/state')
+                assert state['track'].replace('\\','/').endswith('/demo_audio/battle.wav'), state
+                status, response = request('/api/action', {'action':'play_selected','difficulty':'Primal','phase':'戦闘'})
+                assert status == 200 and response['ok'], response
+                status, response = request('/api/config')
+                assert response['result']['difficulty']=='Eclipse', response
+                with log.open('a',encoding='utf-8') as stream:
+                    stream.write('ECLIPTICA - now in stage: Stage_ProtoColony on phase: 0.2 as class: Nekomancer\n')
+                end=time.monotonic()+5
+                while time.monotonic()<end:
+                    _, state = request('/state')
+                    if state['track'].replace('\\','/').endswith('/demo_audio/battle.wav'):break
+                    time.sleep(.1)
+                else:raise AssertionError('automatic stage event did not restore Eclipse track')
+                status, response = request('/api/action', {'action':'set_active_difficulty','difficulty':'Primal'})
+                assert status == 200 and response['ok'], response
+                _, state = request('/state')
+                assert state['track'].replace('\\','/').endswith('/demo_audio/calm.wav'), state
+                assert json.loads(config.read_text(encoding='utf-8'))['active_difficulty']=='Primal'
+                print('PASS: real GUI resumes the selected difficulty, isolates preview, and changes the live stage track', flush=True)
             except Exception as exc:
                 result['error'] = exc
             finally:
