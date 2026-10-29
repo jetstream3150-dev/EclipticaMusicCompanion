@@ -75,6 +75,13 @@ class DifficultyTests(unittest.TestCase):
             self.app.api_action({'action': 'set_active_difficulty', 'difficulty': 'Primal'})
         self.assertEqual(self.app.difficulty.get(), 'Eclipse')
 
+    def test_missing_track_message_is_not_hidden_on_live_change(self):
+        self.app.worker = SimpleNamespace(is_alive=lambda: True)
+        self.app.meter.ingest('ECLIPTICA - now in stage: Stage_ProtoColony on phase: 0.1')
+        result = self.app.api_action({'action': 'set_active_difficulty', 'difficulty': 'Umbra'})
+        self.assertIn('未設定', result)
+        self.assertEqual(self.played[-1][0], 'STOP')
+
     def test_selection_is_saved_and_old_config_has_no_guessed_difficulty(self):
         app = self.app
         app.save = music.App.save.__get__(app)
