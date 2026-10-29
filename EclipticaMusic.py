@@ -1154,12 +1154,12 @@ class App:
    self.difficulty.set(difficulty)
    try:must_save()
    except Exception:self.difficulty.set(previous);raise
+   self.revision+=1;self.status.set('自動再生の難易度: '+difficulty)
    if difficulty!=previous and self.worker and self.worker.is_alive() and not self.stop.is_set():
     snapshot=self.meter.snapshot();mode=snapshot.get('mode')
     if mode=='boss':self.handle_boss(snapshot.get('boss',''))
     elif mode=='stage':self.play_auto('戦闘')
     elif mode=='break':self.play_auto('休憩')
-   self.revision+=1;self.status.set('自動再生の難易度: '+difficulty)
    return self.status.get()
   if action=='start':
    if 'difficulty' in d:self.api_action({'action':'set_active_difficulty','difficulty':val('difficulty',80)})
