@@ -12,12 +12,13 @@ class CombatLogTests(unittest.TestCase):
         meter = CombatMeter(seconds=10)
         self.assertEqual(meter.ingest('2026.09.22 20:00:04 Debug - Dealing 100 STRIKE damage', now=1), [])
         meter.ingest('2026.09.22 20:00:00 Debug - [Behaviour] Entering Room: Ecliptica - Demo Playtest', now=2)
-        meter.ingest('2026.09.22 20:00:01 Debug - ECLIPTICA - now in stage: Stage_ProtoColony on phase: 0.1', now=3)
+        meter.ingest('2026.09.22 20:00:01 Debug - ECLIPTICA - now in stage: Stage_ProtoColony on phase: 0.1 as class: Nekomancer', now=3)
         meter.ingest('2026.09.22 20:00:04 Debug - Dealing 100 STRIKE damage', now=4)
         meter.ingest('2026.09.22 20:00:05 Debug - Dealing 50 NON-STRIKE damage', now=5)
         meter.ingest('2026.09.22 20:00:05 Debug - Unrelated STRIKE damage: 999', now=6)
         result = meter.snapshot(now=6)
         self.assertEqual((result['total_damage'], result['dps'], result['attack_speed']), (150, 15, 0.1))
+        self.assertEqual(result['job'], 'Nekomancer')
         meter.ingest('2026.09.22 20:00:40 Debug - [Behaviour] OnLeftRoom', now=7)
         meter.ingest('2026.09.22 20:00:41 Debug - Dealing 100 STRIKE damage', now=8)
         self.assertEqual(meter.snapshot(now=8)['total_damage'], 0)
@@ -61,6 +62,7 @@ class CombatLogTests(unittest.TestCase):
                 self.value = value
         meter = CombatMeter()
         app = SimpleNamespace(meter=meter, discovered_bosses=set(), status=Status(),
+                              set_detected_event=lambda value: None, stop_music=lambda: None,
                               handle_boss=lambda name: None,
                               handle_event=lambda description, phase: None)
         with tempfile.TemporaryDirectory() as directory:
@@ -83,6 +85,7 @@ class CombatLogTests(unittest.TestCase):
                 self.value = value
         played = []
         app = SimpleNamespace(meter=CombatMeter(), discovered_bosses=set(), status=Status(),
+                              set_detected_event=lambda value: None, stop_music=lambda: None,
                               handle_boss=lambda name: played.append(name),
                               handle_event=lambda description, phase: played.append(phase))
         with tempfile.TemporaryDirectory() as directory:

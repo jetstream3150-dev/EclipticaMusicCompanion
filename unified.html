@@ -44,7 +44,7 @@ aside{border-left:1px solid var(--line);padding:33px 20px;min-height:100vh;backg
 <main>
  <section class="panel active" id="home">
   <header><div class="eyebrow">01 / YOUR MUSIC</div><h1 class="heading">ゲームに、<br>あなただけの音楽を。</h1><div class="lead">VRChat ECLIPTICAのシーンに合わせてBGMを切り替える。<br>再生も設定も、この画面ひとつで。</div></header>
-  <div class="card"><div class="cardh">▶　クイックスタート</div><label for="active-diff">ゲームで選んだ難易度</label><select id="active-diff"></select><p class="muted">VRChatと同じ難易度を選んでください。難易度の自動判定は未対応です。ゲーム内で変えたら、ここも変更してください。ボス専用の曲を設定している場合は、そちらが優先されます。</p><button class="btn primary big" id="start">音楽をスタートする</button><p class="muted">初回のクリックでプレイヤーを有効化し、VRChatのログ監視を開始します。</p><div class="btns"><button class="btn danger" data-action="stop">■ 音楽を停止</button><button class="btn" data-action="stop_watch">■ 自動切替を停止</button></div></div>
+  <div class="card"><div class="cardh">▶　クイックスタート</div><label for="active-diff">難易度の選び方</label><select id="active-diff"></select><p class="muted" id="difficulty-status">自動判定：ログを待っています</p><p class="muted">自動判定はゲームの進行度から推定します。判定できないときは手動でも選べます。ボス専用の曲を設定した場合は、そちらが優先されます。</p><button class="btn primary big" id="start">音楽をスタートする</button><p class="muted">初回のクリックでプレイヤーを有効化し、VRChatのログ監視を開始します。</p><div class="btns"><button class="btn danger" data-action="stop">■ 音楽を停止</button><button class="btn" data-action="stop_watch">■ 自動切替を停止</button></div></div>
   <div class="card"><div class="cardh">シーンを選んで試聴</div><div class="twocol"><div><label for="home-diff">難易度</label><select id="home-diff"></select></div><div><label for="home-phase">場面</label><select id="home-phase"></select></div></div><button class="btn" id="home-preview" style="margin-top:16px">▶ 選んだ場面の曲を試す</button><div class="hint">① 曲を設定 → ② 音楽をスタート → ③ あとはVRChatで遊ぶだけ。</div></div>
   <div class="card"><div class="cardh">検知したイベント</div><div class="muted" id="event-info">検知イベント: なし</div><div class="status" id="app-status">準備中…</div></div>
   <div class="card"><div class="cardh">音が出ないとき</div><p class="muted">プレイヤー、音量、VRChatログの状態をこのPC内で確認します。</p><button class="btn" id="diagnose">🔍 ワンタップ診断</button><div class="status" id="diagnosis" aria-live="polite">ボタンを押すと診断結果を表示します。</div></div>
@@ -162,15 +162,15 @@ function fillBoss(){if(!model)return;currentBoss=$('boss-name').value.trim();$('
 async function loadConfig(first=false){const x=await request('/api/config');const prevKey=currentMusicKey,prevBoss=currentBoss;
  model=x;revision=x.revision;
  if(first){for(const id of ['home-diff','music-diff'])opts(id,x.difficulties);for(const id of ['home-phase','music-phase'])opts(id,x.phases);
- opts('active-diff',x.difficulties);const placeholder=new Option('選択してください','');placeholder.disabled=true;$('active-diff').insertBefore(placeholder,$('active-diff').firstChild);$('active-diff').value=x.difficulty||'';
- $('home-diff').value=x.difficulty||x.difficulties[0];$('home-phase').value=x.phase;
+ opts('active-diff',['自動判定',...x.difficulties]);$('active-diff').value=x.difficulty||'自動判定';
+ $('home-diff').value=x.difficulties.includes(x.difficulty)?x.difficulty:x.difficulties[0];$('home-phase').value=x.phase;
  $('music-diff').value=x.difficulties[0];$('music-phase').value='戦闘';
  fillBossDropdown(x.boss_choices,x.boss);
  $('boss-name').value=x.boss_choices[0]||'';
  $('fade-secs').value=x.fade;$('master-volume').value=x.volume;$('volume-label').textContent=x.volume;
  $('log-path').value=x.log;$('lobby-track').value=x.lobby;
  }else{
-  if(document.activeElement!==$('active-diff'))$('active-diff').value=x.difficulty||'';
+  if(document.activeElement!==$('active-diff'))$('active-diff').value=x.difficulty||'自動判定';
   // Keep saved track inputs synchronized while respecting active edits.
   if(document.activeElement!==$('lobby-track'))$('lobby-track').value=x.lobby;
   if(document.activeElement!==$('log-path'))$('log-path').value=x.log;
@@ -325,6 +325,7 @@ $('diagnose').addEventListener('click',async()=>{
 });
 let previousStatus='';async function pollView(){try{
  const v=await request('/api/view');$('app-status').textContent=v.status;$('event-info').textContent=v.event;$('playback-info').textContent=v.player;
+ $('difficulty-status').textContent=v.detected_difficulty?'ログから推定：'+v.detected_difficulty+'（進行度 '+Math.round((v.detected_progress??0)*100)+'%）':'自動判定：ログを待っています';
  $('engine-label').textContent=v.player.includes('未起動')?'待機中':'プレイヤー接続中';
  $('engine-dot').classList.toggle('ok',v.player.includes('再生中')||v.player.includes('有効化')||v.player.includes('ループ再生'));
  $('monitor-label').textContent=v.monitoring?'監視中':'停止中';$('monitor-dot').classList.toggle('ok',v.monitoring);

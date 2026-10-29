@@ -117,6 +117,34 @@ def main():
                 assert state['track'].replace('\\','/').endswith('/demo_audio/calm.wav'), state
                 assert json.loads(config.read_text(encoding='utf-8'))['active_difficulty']=='Primal'
                 print('PASS: real GUI resumes the selected difficulty, isolates preview, and changes the live stage track', flush=True)
+
+                status, response = request('/api/action', {'action':'set_active_difficulty','difficulty':'自動判定'})
+                assert status == 200 and response['ok'], response
+                with log.open('a',encoding='utf-8') as stream:
+                    stream.write('ECLIPTICA - now in stage: Stage_New on phase: 0.81 as class: Nekomancer\n')
+                end=time.monotonic()+5
+                while time.monotonic()<end:
+                    _, view=request('/api/view');_, state=request('/state')
+                    if view['result']['detected_difficulty']=='Eclipse' and state['track'].replace('\\','/').endswith('/demo_audio/battle.wav'):break
+                    time.sleep(.1)
+                else:raise AssertionError('automatic Eclipse detection did not select the Eclipse stage track')
+                with log.open('a',encoding='utf-8') as stream:
+                    stream.write('2026 Debug - [Behaviour] OnLeftRoom\n')
+                end=time.monotonic()+5
+                while time.monotonic()<end:
+                    _, view=request('/api/view');_, state=request('/state')
+                    if not view['result']['detected_difficulty'] and state['stop']:break
+                    time.sleep(.1)
+                else:raise AssertionError('difficulty was not cleared after leaving the world')
+                with log.open('a',encoding='utf-8') as stream:
+                    stream.write('ECLIPTICA - now in stage: Stage_Return on phase: 0.81 as class: Nekomancer\n')
+                status, response=request('/api/action',{'action':'start','difficulty':'自動判定'})
+                assert status==200 and response['ok'],response
+                _, view=request('/api/view');_, state=request('/state')
+                assert view['result']['detected_difficulty']=='Eclipse',view
+                assert state['track'].replace('\\','/').endswith('/demo_audio/battle.wav'),state
+                assert json.loads(config.read_text(encoding='utf-8'))['difficulty_mode']=='auto'
+                print('PASS: real GUI auto-detects, resumes and clears the stage difficulty on exit',flush=True)
             except Exception as exc:
                 result['error'] = exc
             finally:

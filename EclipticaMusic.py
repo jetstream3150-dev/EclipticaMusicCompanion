@@ -12,6 +12,7 @@ from alert_sound import play_custom_sound
 from vrchat_identity import detect_identity, session_sort_key
 from battle_results import BattleResults
 from steamvr_hud import SteamVRHUD
+from difficulty_detection import infer_difficulty
 BASE=Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 USER_DIR=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else BASE
 CFG=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'EclipticaMusicCompanion'/'settings.json'
@@ -62,7 +63,7 @@ def youtube_id(track):
 def read_resume_snapshot(path,meter):
  """Replay only complete recent lines, without replaying damage or alerts."""
  stat=path.stat();end=stat.st_size
- if time.time()-stat.st_mtime>7200:return end,None
+ if time.time()-stat.st_mtime>7200:return end,None,None
  with path.open('rb') as stream:
   begin=max(0,end-2_000_000);stream.seek(begin);data=stream.read(end-begin)
  last=data.rfind(b'\n')
@@ -70,18 +71,21 @@ def read_resume_snapshot(path,meter):
  data=data[:last+1] if last>=0 else b''
  if begin and data:
   first=data.find(b'\n');data=data[first+1:] if first>=0 else b''
- event=None
+ event=None;detected=None
  for line in data.decode('utf-8','replace').splitlines():
   meter.ingest(line,replay=True)
-  if re.search(r'\[Behaviour\]\s*(?:Entering Room:|OnLeftRoom\b)',line,re.I):event=None
+  if re.search(r'\[Behaviour\]\s*(?:Entering Room:|OnLeftRoom\b)',line,re.I):event=None;detected=None
   if 'ECLIPTICA - now in intermission' in line:event=('休憩',None)
-  elif 'ECLIPTICA - now in lobby' in line:event=('ロビー',None)
+  elif 'ECLIPTICA - now in lobby' in line:event=('ロビー',None);detected=None
   else:
    boss=re.search(r'ECLIPTICA - now fighting boss:\s*(.+?)\s+on phase:',line)
    stage=re.search(r'ECLIPTICA - now in stage:\s*(.+?)\s+on phase:',line)
-   if boss:event=('ボス',re.sub(r'\(Clone\)$','',boss.group(1).strip(),flags=re.I).strip())
-   elif stage:event=('戦闘',stage.group(1).strip())
- return offset,event
+   if boss:
+    detected=infer_difficulty(line,detected);event=('ボス',re.sub(r'\(Clone\)$','',boss.group(1).strip(),flags=re.I).strip())
+   elif stage:
+    detected=infer_difficulty(line,detected);event=('戦闘',stage.group(1).strip())
+   elif re.search(r'ECLIPTICA - now (?:in stage|fighting boss):',line):event=None;detected=None
+ return offset,event,detected
 
 def add_sample_music_once(cfg,difficulties):
  # Fill missing slots on first upgrade without changing any existing selection.
@@ -361,7 +365,7 @@ class PartyHUD(tk.Toplevel):
 
 class App:
  def __init__(self,root,port):
-  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value=self.cfg.get('active_difficulty','') if self.cfg.get('active_difficulty') in self.DIFFICULTIES else '');self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.watch_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.party_hud=None;self.party_rows=[];self.extra_widgets={};self.identity_status='自動取得の確認待ち';self.identity_log='';self.results=BattleResults(CFG.parent/'battle_results.json');self.vr_hud=SteamVRHUD();self.build();self.root.after(50,self.drain_watch_events);self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
+  self.root=root;self.port=port;self.cfg=self.load_config();self.stop=threading.Event();self.worker=None;self.round=0;self.boss='';self.laststage='';self.vars={};self.difficulty=tk.StringVar(value=self.cfg.get('active_difficulty') if self.cfg.get('difficulty_mode')=='manual' and self.cfg.get('active_difficulty') in self.DIFFICULTIES else '自動判定');self.detected_event=None;self.phase_choice=tk.StringVar(value='休憩');self.current_round=tk.IntVar(value=1);root.title('Ecliptica Music Companion v1.8.2 β Lite');root.geometry('920x760');root.minsize(650,540);root.configure(bg='#0b1020');self.status=tk.StringVar(value='待機中');self.event_status=tk.StringVar(value='検知イベント: なし');self.fade=tk.DoubleVar(value=self.cfg.get('fade',2));self.volume=tk.IntVar(value=self.cfg.get('volume',80));self.log=tk.StringVar(value=self.cfg.get('log',''));self.player_process=None;self.player_launched=False;self.unified=False;self.ui_last_seen=0;self.ui_goodbye_at=0;self.ui_launched_at=0;self.revision=0;self.player_status=tk.StringVar(value='プレイヤー: 未接続');self.overlay_cfg=self._overlay_options();self.meter=CombatMeter(self.overlay_cfg['name'],self.overlay_cfg['seconds']);self.combat_events=queue.Queue();self.watch_events=queue.Queue();self.discovered_bosses=set(self.cfg.get('discovered_bosses',[])) if isinstance(self.cfg.get('discovered_bosses'),list) else set();self.hud=None;self.party_hud=None;self.party_rows=[];self.extra_widgets={};self.identity_status='自動取得の確認待ち';self.identity_log='';self.results=BattleResults(CFG.parent/'battle_results.json');self.vr_hud=SteamVRHUD();self.build();self.root.after(50,self.drain_watch_events);self.root.after(350,self.update_hud_loop);self.root.after(800,self.refresh_identity);self.root.after(15000,self.periodic_identity_refresh);root.protocol('WM_DELETE_WINDOW',self.close);root.after(650,lambda:self.toggle_hud(True) if self.overlay_cfg['show'] else None);root.after(1200,self.auto_start);root.after(1500,self.refresh_player_status)
   if self.overlay_cfg['vr_show']:self.vr_hud.enable(True,self.overlay_cfg['vr_split'])
  def _overlay_options(self):
   defaults={'show':False,'vr_show':False,'vr_split':False,'show_damage':False,'show_target':False,'name':'','auto_name':True,'alert':True,'other_alerts':False,'show_weakness':True,'show_party':True,'separate_widgets':False,'widget_positions':{},'sound_path':'','volume':65,'seconds':10,'opacity':92}
@@ -535,10 +539,10 @@ class App:
   actions=ttk.Frame(home);actions.pack(fill='x',pady=4)
   ttk.Button(actions,text='■  音楽を止める',command=self.stop_music).pack(side='left',fill='x',expand=True,padx=(0,5))
   ttk.Button(actions,text='■  自動切替を止める',command=self.stop_watch).pack(side='left',fill='x',expand=True,padx=(5,0))
-  ttk.Label(home,text='ゲームと同じ難易度を選択（自動判定は未対応）',style='Heading.TLabel').pack(anchor='w',pady=(20,7))
+  ttk.Label(home,text='難易度（ログから自動推定、または手動選択）',style='Heading.TLabel').pack(anchor='w',pady=(20,7))
   row=ttk.Frame(home);row.pack(fill='x')
   ttk.Label(row,text='難易度').pack(side='left')
-  ttk.Combobox(row,textvariable=self.difficulty,values=self.DIFFICULTIES,state='readonly',width=20).pack(side='left',padx=(8,20))
+  ttk.Combobox(row,textvariable=self.difficulty,values=('自動判定',)+self.DIFFICULTIES,state='readonly',width=20).pack(side='left',padx=(8,20))
   ttk.Label(row,text='場面').pack(side='left')
   ttk.Combobox(row,textvariable=self.phase_choice,values=self.PHASES,state='readonly',width=12).pack(side='left',padx=8)
   ttk.Button(home,text='▶ 選んだ場面の曲を試す',command=self.play_selected).pack(anchor='w',pady=(10,0))
@@ -738,7 +742,7 @@ class App:
     self.log.set(restored.get('log',''))
     self.fade.set(restored.get('fade',2))
     self.volume.set(restored.get('volume',80))
-    self.difficulty.set(restored.get('active_difficulty','') if restored.get('active_difficulty') in self.DIFFICULTIES else '')
+    self.difficulty.set(restored.get('active_difficulty') if restored.get('difficulty_mode')=='manual' and restored.get('active_difficulty') in self.DIFFICULTIES else '自動判定')
    finally:self._loading_editor=False
    self.load_music_editor();self.boss_name_changed()
    self.on_volume_change();self.save(quiet=True);self.revision+=1
@@ -749,7 +753,9 @@ class App:
   try:os.startfile(str(CFG.parent));self.status.set('設定の保存先を開きました')
   except Exception as e:messagebox.showerror('開けませんでした',str(e))
  def play_selected(self,difficulty=None,phase=None):
-  key=(self.difficulty.get() if difficulty is None else difficulty)+'|'+(self.phase_choice.get() if phase is None else phase)
+  selected=self.difficulty.get() if difficulty is None else difficulty
+  if selected=='自動判定':selected=(getattr(self,'detected_event',None) or {}).get('difficulty','')
+  key=selected+'|'+(self.phase_choice.get() if phase is None else phase)
   v=self.vars.get(('music',key));track=v.get().strip() if v else ''
   if not track:self.status.set('選択した難易度・フェーズの曲が未設定です');return
   self.play(track,self.get_fallback(key))
@@ -757,8 +763,9 @@ class App:
   v=self.vars.get(('fallback',key));return v.get().strip() if v else ''
  def play_auto(self,phase):
   difficulty=self.difficulty.get()
+  if difficulty=='自動判定':difficulty=(getattr(self,'detected_event',None) or {}).get('difficulty','')
   if difficulty not in self.DIFFICULTIES:
-   self.stop_music();self.status.set('ゲームと同じ難易度を選択してください');return
+   self.stop_music();self.status.set('難易度を判定できません。VRChatのログを確認しています');return
   key=difficulty+'|'+phase
   v=self.vars.get(('music',key));track=v.get().strip() if v else ''
   if track:self.play(track,self.get_fallback(key))
@@ -785,7 +792,9 @@ class App:
    updated.update(music=music,boss=boss,fallback=fallback,lobby=self.lobby.get().strip())
    try:fade=max(0,min(15,float(self.fade.get())))
    except (ValueError,tk.TclError):fade=2.0
-   updated.update(log=self.log.get(),fade=fade,volume=int(self.volume.get()),overlay=dict(self.overlay_cfg),active_difficulty=self.difficulty.get(),discovered_bosses=sorted(self.discovered_bosses))
+   choice=self.difficulty.get();mode='auto' if choice=='自動判定' else 'manual'
+   manual=choice if choice in self.DIFFICULTIES else self.cfg.get('active_difficulty','')
+   updated.update(log=self.log.get(),fade=fade,volume=int(self.volume.get()),overlay=dict(self.overlay_cfg),difficulty_mode=mode,active_difficulty=manual,discovered_bosses=sorted(self.discovered_bosses))
    tmp=CFG.with_suffix('.tmp');tmp.write_text(json.dumps(updated,ensure_ascii=False,indent=2),'utf-8');tmp.replace(CFG);self.cfg=updated
    self.status.set('設定を保存しました') if not quiet else None
    return True
@@ -871,7 +880,7 @@ class App:
  def auto_start(self):
   if self.cfg.get('auto',True):self.start()
  def start(self):
-  if self.difficulty.get() not in self.DIFFICULTIES:
+  if self.difficulty.get() not in ('自動判定',)+self.DIFFICULTIES:
    self.status.set('音楽を始める前に、ゲームと同じ難易度を選択してください');return False
   if not self.save():return False
   # Prefer the current VRChat session's newest log over a persisted stale path.
@@ -888,28 +897,30 @@ class App:
    while True:
     try:pending.get_nowait()
     except queue.Empty:break
-  self.stop=threading.Event();self.round=0;self.boss='';self.laststage=''
+  self.stop=threading.Event();self.round=0;self.boss='';self.laststage='';self.set_detected_event(None)
   self.event_status.set('検知イベント: 待機中（次のゲームイベントから再生）')
   # Read a fixed historical snapshot before monitoring subsequent bytes. This
   # prevents live lines from being replayed twice or overwriting newer state.
   offset=self.resume_from_log(p)
-  self.worker=threading.Thread(target=self.watch,args=(p,self.stop,offset,self._watch_generation),daemon=True)
+  self.worker=threading.Thread(target=self.watch,args=(p,self.stop,offset,self._watch_generation,self.detected_event),daemon=True)
   self.worker.start();self.status.set('監視中: '+p.name);return True
  def resume_from_log(self,p):
   # The most recent ECLIPTICA state in this VRChat session is a best-effort hint.
   try:
-   offset,last_event=read_resume_snapshot(p,self.meter)
+   offset,last_event,detected=read_resume_snapshot(p,self.meter)
+   self.set_detected_event(detected)
    if last_event:
     kind,name=last_event
     if kind=='ボス':self.handle_boss(name)
     elif kind=='ロビー':self.handle_event('途中参加・ロビー','ロビー')
     else:self.handle_event('途中参加・推定'+kind,kind)
    else:
+    self.stop_music()
     self.status.set('現在の場面をログから特定できません。次のゲームイベントを待っています')
     if hasattr(self,'event_status'):self.event_status.set('現在の場面は未確認。次のゲームイベントを待っています')
    return offset
   except (OSError,UnicodeError) as e:
-   self.status.set('途中参加の状態確認に失敗: '+str(e));return None
+   self.set_detected_event(None);self.stop_music();self.status.set('途中参加の状態確認に失敗: '+str(e));return None
  def stop_watch(self):
   self.finish_monitor('監視停止')
   self._watch_generation+=1
@@ -920,17 +931,18 @@ class App:
    try:generation,kind,value=self.watch_events.get_nowait()
    except queue.Empty:break
    if generation!=self._watch_generation or self.stop.is_set():continue
-   if kind=='phase':self.handle_event(value[0],value[1])
+   if kind=='difficulty':self.set_detected_event(value)
+   elif kind=='phase':self.handle_event(value[0],value[1])
    elif kind=='boss':self.handle_boss(value)
    elif kind=='log':self.log.set(value)
    elif kind=='status':self.status.set(value)
   if self.root.winfo_exists():self.root.after(50,self.drain_watch_events)
- def watch(self,p,signal,offset=None,generation=None):
+ def watch(self,p,signal,offset=None,generation=None,initial_detection=None):
   # Read the log off-thread and deliver events through a generation-tagged queue.
   if generation is None:generation=self._watch_generation
   def emit(kind,value):
    if not signal.is_set():self.watch_events.put((generation,kind,value))
-  f=None
+  f=None;detected=initial_detection
   try:
    f=p.open('rb')
    if offset is None:f.seek(0,2)
@@ -948,13 +960,13 @@ class App:
       try:current_size=p.stat().st_size
       except OSError:current_size=None
       if current_size is not None and current_size<f.tell():
-       f.close();f=p.open('rb');partial=b'';skipping=False
+       f.close();f=p.open('rb');partial=b'';skipping=False;detected=None
        with self.meter.lock:
         if signal.is_set():break
         previous=self.meter.interrupt('ログ更新')
         if previous:self.combat_events.put((generation,'result',previous[1]))
         self.meter.reset()
-       emit('status','ログが更新されたため監視を再開しました: '+p.name)
+       emit('difficulty',None);emit('phase',('ログ更新・状態未確認',None));emit('status','ログが更新されたため監視を再開しました: '+p.name)
        continue
       newest=max(LOG.glob('output_log_*.txt'),key=session_sort_key,default=None)
       try:current_key=session_sort_key(p)
@@ -967,17 +979,17 @@ class App:
          previous=self.meter.interrupt('ログ切替')
          if previous:self.combat_events.put((generation,'result',previous[1]))
          self.meter.reset()
-         resume_offset,resume_event=read_resume_snapshot(newest,self.meter)
+         resume_offset,resume_event,detected=read_resume_snapshot(newest,self.meter)
        except Exception:
         nf.close();raise
        nf.seek(resume_offset)
        f.close();f=nf;p=newest;partial=b'';skipping=False
-       emit('log',str(p));emit('status','新しいログへ自動切替: '+p.name)
+       emit('log',str(p));emit('difficulty',detected);emit('status','新しいログへ自動切替: '+p.name)
        if resume_event:
         kind,name=resume_event
         if kind=='ボス':emit('boss',name)
         else:emit('phase',('ログ切替後・推定'+kind,kind))
-       else:emit('status','ログ切替後の場面は未確認です。次のゲームイベントを待っています')
+       else:emit('phase',('ログ切替・状態未確認',None));emit('status','ログ切替後の場面は未確認です。次のゲームイベントを待っています')
      except OSError:pass
      continue
     # Bound memory if a corrupted log contains an exceptionally long line.
@@ -997,26 +1009,32 @@ class App:
       # would let an ignored backlog grow indefinitely during busy fights.
       if transition[0] in ('boss','target_on','target_off','target_switch','result'):
        self.combat_events.put((generation,transition[0],transition[1]))
-    if re.search(r'\[Behaviour\]\s*OnLeftRoom\b',line,re.I):
-     emit('phase',('VRChatワールドを退出',None));continue
+    if re.search(r'\[Behaviour\]\s*(?:OnLeftRoom\b|Entering Room:)',line,re.I):
+     detected=None;emit('difficulty',None);emit('phase',('VRChatワールドを移動',None));continue
     if 'ECLIPTICA - now in intermission' in line:
      emit('phase',('休憩開始','休憩'))
     elif 'ECLIPTICA - now in lobby' in line:
-     emit('phase',('ロビーに戻りました','ロビー'))
+     detected=None;emit('difficulty',None);emit('phase',('ロビーに戻りました','ロビー'))
     else:
      stage=re.search(r'ECLIPTICA - now in stage:\s*(.+?)\s+on phase:',line)
      boss=re.search(r'ECLIPTICA - now fighting boss:\s*(.+?)\s+on phase:',line)
      if stage:
+      detected=infer_difficulty(line,detected);emit('difficulty',detected)
       # Never deduplicate by stage name: the same stage may appear in later rounds.
       name=stage.group(1).strip()
       emit('phase',('戦闘開始: '+name,'戦闘'))
      elif boss:
+      detected=infer_difficulty(line,detected);emit('difficulty',detected)
       name=re.sub(r'\(Clone\)$','',boss.group(1).strip(),flags=re.I).strip()
       emit('boss',name)
+     elif re.search(r'ECLIPTICA - now (?:in stage|fighting boss):',line):
+      detected=None;emit('difficulty',None);emit('phase',('進行度を読み取れません',None))
   except Exception as e:
    emit('status','ログ読み込み失敗: '+str(e))
   finally:
    if f is not None:f.close()
+ def set_detected_event(self,value):
+  if self.detected_event!=value:self.detected_event=value;self.revision+=1
  def handle_event(self,description,phase):
   self.event_status.set('検知イベント: '+description)
   if phase=='ロビー':
@@ -1068,7 +1086,7 @@ class App:
   return {'music':music,'fallback':fallback,'boss':dict(self.boss_map),
    'overlay':dict(self.overlay_cfg),'identity_status':self.identity_status,
    'lobby':self.lobby.get(),'log':self.log.get(),'fade':self.fade.get(),
-   'volume':self.volume.get(),'difficulty':self.difficulty.get(),
+   'volume':self.volume.get(),'difficulty':self.difficulty.get(),'detected_difficulty':(self.detected_event or {}).get('difficulty',''),
    'phase':self.phase_choice.get(),'difficulties':list(self.DIFFICULTIES),
    'phases':list(self.PHASES),'boss_choices':sorted(set(self.BOSS_CHOICES)|set(self.OFFICIAL_BOSS_CHOICES)|self.discovered_bosses|set(self.boss_map),key=str.casefold),'revision':self.revision}
  def api_view(self):
@@ -1076,7 +1094,7 @@ class App:
   with lock:player_connected=bool(state.get('player_seen') and time.time()-state['player_seen']<5)
   return {'status':self.status.get(),'event':self.event_status.get(),
     'player':self.player_status.get(),'monitoring':bool(self.worker and self.worker.is_alive() and not self.stop.is_set()),
-    'revision':self.revision,'volume':self.volume.get(),'combat':combat,'weakness':lookup_weakness(combat['boss'],str(BASE/'boss_weakness_data.txt')),'overlay_visible':bool(self.overlay_cfg['show']),'party_overlay_enabled':bool(self.overlay_cfg.get('show_party',True)),'identity_status':self.identity_status,'vr_status':self.vr_hud.status(),'results':self.results.latest(),'diagnostics':{'player_connected':player_connected,'log_exists':bool(self.log.get().strip() and Path(self.log.get()).is_file())}}
+    'revision':self.revision,'volume':self.volume.get(),'detected_difficulty':(self.detected_event or {}).get('difficulty',''),'detected_progress':(self.detected_event or {}).get('progress'),'combat':combat,'weakness':lookup_weakness(combat['boss'],str(BASE/'boss_weakness_data.txt')),'overlay_visible':bool(self.overlay_cfg['show']),'party_overlay_enabled':bool(self.overlay_cfg.get('show_party',True)),'identity_status':self.identity_status,'vr_status':self.vr_hud.status(),'results':self.results.latest(),'diagnostics':{'player_connected':player_connected,'log_exists':bool(self.log.get().strip() and Path(self.log.get()).is_file())}}
  def api_action(self,d):
   action=d.get('action','')
   if not isinstance(action,str):raise ValueError('不正な操作です')
@@ -1149,7 +1167,7 @@ class App:
    return '警告音の再生を指示しました'
   if action=='set_active_difficulty':
    difficulty=val('difficulty',80)
-   if difficulty not in self.DIFFICULTIES:raise ValueError('ゲームと同じ難易度を選択してください')
+   if difficulty not in ('自動判定',)+self.DIFFICULTIES:raise ValueError('難易度の選択が不正です')
    previous=self.difficulty.get()
    self.difficulty.set(difficulty)
    try:must_save()

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import EclipticaMusic as music
 from combat_meter import CombatMeter
+from difficulty_detection import infer_difficulty
 
 
 class Value:
@@ -49,6 +50,21 @@ class DifficultyTests(unittest.TestCase):
         self.assertEqual(self.app.phase_choice.get(), '休憩')
         self.app.handle_event('stage', '戦闘')
         self.assertEqual(self.played[-1][0], 'eclipse-stage')
+
+    def test_auto_mode_selects_detected_track_and_never_uses_old_manual_value(self):
+        self.app.difficulty.set('自動判定')
+        self.app.detected_event=infer_difficulty('ECLIPTICA - now in stage: Test on phase: 0.81')
+        self.app.handle_event('stage', '戦闘')
+        self.assertEqual(self.played[-1][0], 'eclipse-stage')
+        self.app.detected_event=None
+        self.app.handle_event('stage', '戦闘')
+        self.assertEqual(self.played[-1][0], 'STOP')
+        self.assertIn('判定できません',self.app.status.get())
+
+    def test_auto_mode_preserves_boss_specific_override(self):
+        self.app.difficulty.set('自動判定');self.app.detected_event=None
+        self.app.handle_boss('Yuki')
+        self.assertEqual(self.played[-1][0], 'special-boss')
 
     def test_unknown_difficulty_never_selects_a_track(self):
         self.app.difficulty.set('')
